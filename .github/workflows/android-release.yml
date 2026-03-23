@@ -1,0 +1,64 @@
+name: Android Release
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v2
+
+    - name: Build web assets
+      run: |
+        npm run build
+        npx cap sync android
+
+    - name: Build Android APK
+      run: |
+        cd android
+        ./gradlew.bat assembleRelease
+
+    - name: Sign APK
+      uses: ilharp/sign-android-release@v1
+      with:
+        releaseDirectory: android/app/build/outputs/apk/release
+        signingKeyBase64: ${{ secrets.RELEASE_STORE_FILE }}
+        alias: ${{ secrets.RELEASE_KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.RELEASE_STORE_PASSWORD }}
+        keyPassword: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: "android/app/build/outputs/apk/release/app-release.apk"
+        tag: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
+        body: |
+          Автоматически сгенерированный релиз
+          Сборка APK для версии ${{ github.ref_name }}

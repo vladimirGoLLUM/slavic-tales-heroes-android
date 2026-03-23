@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Обнуление и базовые стили */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body, html {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+body {
+  background-color: #1a1a2e;
+  color: #ffffff;
+  font-family: 'Spectral', serif;
+  line-height: 1.6;
+}
+
+/* Контейнер приложения */
+#root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Контейнер основного контента */
+.app-container {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Безопасные области для iPhone X+ */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Скрытие скроллбара, но сохранение функциональности */
+.app-container::-webkit-scrollbar {
+  display: none;
+}
+
+.app-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Стили для полноэкранного режима */
+.fullscreen-enabled {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Фикс для iOS Safari */
+body.ios-safari {
+  overscroll-behavior-y: none;
+}
+
+/* Стили для splash-экрана */
+.splash-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #000000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  background-image: url('/splash/splash.png');
+  background-size: cover;
+  background-position: center;
+}
+
+.splash-logo {
+  width: 60%;
+  max-width: 300px;
+  opacity: 0.9;
+}
+
+/* Анимация появления */
+@keyframes fadeIn {
+  from { opacity: 0.8; }
+  to { opacity: 1; }
+}
+
+.splash-logo {
+  animation: fadeIn 1.5s ease-in-out infinite alternate;
+}
+
+/* Фикс для Android */
+body.android {
+  touch-action: manipulation;
+}
+
+/* Стили для кнопок */
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Фикс для ввода текста */
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
