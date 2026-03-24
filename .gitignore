@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# Android key
+android/app/my-release-key.keystore
+my-release-key.keystore
+keystore.base64
+keystore-clean.base64
