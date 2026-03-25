@@ -2,12 +2,15 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
 const MORE_ITEMS = [
+  { path: '/daily-quests', label: 'Ежедневные задания', icon: '📋', description: 'Награды за ежедневную активность', isEmoji: true },
+  { path: '/achievements', label: 'Достижения', icon: '/ui/icon_achievements.png', description: 'Свитки Славы' },
   { path: '/settings', label: 'Настройки', icon: '/ui/icon_settings.png', description: 'Управление аккаунтом' },
   { path: '/heroes', label: 'Герои', icon: '/ui/icon_heroes.png', description: 'Все герои игры' },
   { path: '/artifacts', label: 'Артефакты', icon: '/ui/icon_artifacts.png', description: 'Справочник артефактов' },
   { path: '/calculator', label: 'Калькулятор', icon: '/ui/icon_calculator.png', description: 'Расчёт характеристик' },
   { path: '/compare', label: 'Сравнение', icon: '/ui/icon_compare.png', description: 'Сравни героев' },
   { path: '/hero-3d-showcase', label: '3D Герои', icon: '/ui/icon_heroes.png', description: '3D-отображение героев' },
+  { path: '/relics', label: 'Реликвии Бездны', icon: '/relics/seal_overlord.png', description: 'Коллекция реликвий' },
 ];
 
 export default function MorePage() {
@@ -36,7 +39,11 @@ export default function MorePage() {
               onClick={() => navigate(item.path)}
               className="w-full flex items-center gap-4 bg-surface/60 hover:bg-surface/80 border border-border/50 hover:border-primary/40 rounded-xl px-4 py-3 card-lubok transition-all min-h-[56px]"
             >
-              <img src={item.icon} alt={item.label} className="w-10 h-10 object-contain" />
+              {'isEmoji' in item && item.isEmoji ? (
+                <span className="text-3xl w-10 h-10 flex items-center justify-center">{item.icon}</span>
+              ) : (
+                <img src={item.icon} alt={item.label} className="w-10 h-10 object-contain" />
+              )}
               <div className="flex flex-col items-start">
                 <span className="font-kelly text-sm text-foreground">{item.label}</span>
                 <span className="text-xs text-muted-foreground">{item.description}</span>

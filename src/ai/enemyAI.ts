@@ -11,6 +11,8 @@ export interface BattleUnit {
   skillCooldowns: number[];
   effects: StatusEffect[];
   turnMeter: number;
+  redStars?: number;
+  immuneEffects?: string[];
 }
 
 /** Difficulty-aware target selection */
@@ -22,27 +24,31 @@ export function chooseTarget(attacker: BattleUnit, allUnits: BattleUnit[], diffi
   const taunter = enemies.find(e => hasEffect(e, 'taunt'));
   if (taunter) return taunter;
 
+  // Veil: filter out veiled units for single-target (if any non-veiled remain)
+  const nonVeiled = enemies.filter(e => !hasEffect(e, 'veil'));
+  const targetPool = nonVeiled.length > 0 ? nonVeiled : enemies;
+
   // Приоритет 1: Добить слабого — threshold scales with difficulty
   const finishThreshold = 0.3 + difficultyTier * 0.05; // 30%-45%
-  const lowHp = enemies
+  const lowHp = targetPool
     .filter(e => e.currentHp < e.maxHp * finishThreshold)
     .sort((a, b) => a.currentHp - b.currentHp); // focus lowest first
   if (lowHp.length > 0) return lowHp[0];
 
   // Higher difficulties: focus fire on the highest DPS player unit
   if (difficultyTier >= 2) {
-    const byAtk = [...enemies].sort((a, b) => b.champion.baseStats.atk - a.champion.baseStats.atk);
+    const byAtk = [...targetPool].sort((a, b) => b.champion.baseStats.atk - a.champion.baseStats.atk);
     if (byAtk.length > 0 && Math.random() < 0.6) return byAtk[0];
   }
 
   // Приоритет 2: Саппорт (healers/buffers)
-  const supports = enemies.filter(e =>
+  const supports = targetPool.filter(e =>
     e.champion.skills.some(s => s.type === 'heal' || s.type === 'buff')
   );
   if (supports.length > 0) return supports[0];
 
   // Приоритет 3: Самый хлипкий
-  return enemies.reduce((min, e) =>
+  return targetPool.reduce((min, e) =>
     e.champion.baseStats.def < min.champion.baseStats.def ? e : min
   );
 }
@@ -105,6 +111,12 @@ export function updateCooldowns(unit: BattleUnit): BattleUnit {
 /** Применение кулдауна к использованному навыку */
 export function applyCooldown(unit: BattleUnit, skillIndex: number): BattleUnit {
   const newCd = [...unit.skillCooldowns];
-  newCd[skillIndex] = unit.champion.skills[skillIndex].cooldown;
+  let cd = unit.champion.skills[skillIndex].cooldown;
+  // Красные звёзды ★3 и ★4 каждая уменьшают откат 2-го навыка на 1
+  if (skillIndex === 1 && unit.redStars) {
+    if (unit.redStars >= 3) cd = Math.max(1, cd - 1);
+    if (unit.redStars >= 4) cd = Math.max(1, cd - 1);
+  }
+  newCd[skillIndex] = cd;
   return { ...unit, skillCooldowns: newCd };
 }

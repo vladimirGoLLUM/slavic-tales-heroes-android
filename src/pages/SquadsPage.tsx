@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '@/context/GameContext';
 import { calculateUnitPower } from '@/data/campaignStages';
 import { RARITY_ORDER, type Rarity } from '@/data/gameData';
 import HeroCard from '@/components/game/HeroCard';
+import TutorialGlow from '@/components/game/TutorialGlow';
 
 const RARITIES: Rarity[] = ['Самоцветный', 'Калиновый', 'Сказанный', 'Заветный', 'Обиходный'];
 const RARITY_COLORS: Record<Rarity, string> = {
@@ -17,7 +19,7 @@ const RARITY_COLORS: Record<Rarity, string> = {
 
 export default function SquadsPage() {
   const navigate = useNavigate();
-  const { player, setActiveSquad, renameSquad, addToSquadSlot, removeFromSquadSlot } = useGame();
+  const { player, setActiveSquad, renameSquad, addToSquadSlot, removeFromSquadSlot, addSquad, deleteSquad, getFullStats, advanceTutorial } = useGame();
   const [selectedSquad, setSelectedSquad] = useState(player.activeSquadId);
   const [editingName, setEditingName] = useState<number | null>(null);
   const [tempName, setTempName] = useState('');
@@ -29,12 +31,24 @@ export default function SquadsPage() {
     .map(id => player.champions.find(c => c.id === id))
     .filter(Boolean);
 
-  const { getFullStats } = useGame();
   const squadPower = squadMembers.reduce((sum, pc) => {
     if (!pc) return sum;
     const stats = getFullStats(pc);
     return sum + calculateUnitPower(stats);
   }, 0);
+
+  const step = player.tutorialStep ?? 99;
+  // Step 7: add heroes, step 8/22/38: back button, step 18/32: click first hero
+  const showAddHint = step === 7 && squadMembers.length < 4;
+  const showEquipHint = step === 18 || step === 32;
+  const isBackHighlighted = step === 8 || step === 22 || step === 38;
+
+  // Auto-open hero picker when step 7
+  useEffect(() => {
+    if (step === 7 && squadMembers.length < 4 && !showHeroPicker) {
+      setShowHeroPicker(true);
+    }
+  }, [step, squadMembers.length]);
 
   const isActive = selectedSquad === player.activeSquadId;
 
@@ -63,9 +77,23 @@ export default function SquadsPage() {
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
           <button
-            onClick={() => navigate('/')}
-            className="text-muted-foreground hover:text-foreground text-xl min-w-[44px] min-h-[44px] flex items-center justify-center"
+            onClick={() => {
+              if (step === 8) advanceTutorial(8);
+              if (step === 22) advanceTutorial(22);
+              if (step === 38) advanceTutorial(38);
+              navigate('/');
+            }}
+            className={`relative text-xl min-w-[44px] min-h-[44px] flex items-center justify-center ${
+              isBackHighlighted ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
+            {isBackHighlighted && (
+              <TutorialGlow label={
+                step === 8 ? 'Отряд собран! Возвращайся на главный экран.' :
+                step === 22 ? 'Отлично! Герой вооружён. Возвращайся.' :
+                step === 38 ? 'Обучение почти завершено! Возвращайся.' : 'Вернись назад'
+              } wide />
+            )}
             ←
           </button>
           <img src="/ui/icon_squads.png" alt="" className="w-8 h-8 object-contain" />
@@ -73,8 +101,11 @@ export default function SquadsPage() {
         </div>
 
         <button
-          onClick={() => navigate('/collection')}
-          className="w-full flex items-center gap-4 bg-surface/70 hover:bg-surface/90 border border-border/50 hover:border-primary/40 rounded-xl px-5 py-4 card-lubok transition-all hover:scale-[1.02] active:scale-[0.98] min-h-[60px] group mb-4"
+          onClick={() => step >= 39 && navigate('/collection')}
+          disabled={step < 39}
+          className={`w-full flex items-center gap-4 border rounded-xl px-5 py-4 card-lubok transition-all min-h-[60px] group mb-4 ${
+            step < 39 ? 'bg-surface/30 border-border/30 opacity-40 grayscale cursor-not-allowed' : 'bg-surface/70 hover:bg-surface/90 border-border/50 hover:border-primary/40 hover:scale-[1.02] active:scale-[0.98]'
+          }`}
         >
           <img src="/ui/icon_collection.png" alt="Дружина" className="w-10 h-10 object-contain flex-shrink-0 group-hover:scale-110 transition-transform" />
           <div className="flex flex-col items-start">
@@ -85,7 +116,8 @@ export default function SquadsPage() {
         </button>
 
         {/* Squad tabs */}
-        <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
+        {step >= 39 && (
+        <DragScroll className="flex gap-1.5 mb-4 pb-1">
           {player.squads.map((sq) => {
             const validCount = sq.members.filter(id => player.champions.some(c => c.id === id)).length;
             return (
@@ -105,7 +137,19 @@ export default function SquadsPage() {
               </button>
             );
           })}
-        </div>
+          {player.squads.length < 10 && (
+            <button
+              onClick={() => {
+                const newId = addSquad();
+                if (newId !== null) setSelectedSquad(newId);
+              }}
+              className="flex-shrink-0 w-10 h-10 rounded-lg bg-surface/60 hover:bg-primary/20 border border-dashed border-border/50 hover:border-primary/50 text-muted-foreground hover:text-primary text-xl flex items-center justify-center transition-all"
+            >
+              +
+            </button>
+          )}
+        </DragScroll>
+        )}
 
         {/* Current squad info */}
         <motion.div
@@ -115,7 +159,18 @@ export default function SquadsPage() {
           className="bg-surface/60 rounded-xl border border-border p-4 card-lubok mb-4"
         >
           <div className="flex items-center justify-between mb-3">
-            {editingName === selectedSquad ? (
+            <div className="flex items-center gap-2">
+              <h2 className="font-kelly text-lg text-foreground">{currentSquad.name}</h2>
+              {step >= 39 && editingName !== selectedSquad && (
+                <button
+                  onClick={() => startRename(selectedSquad)}
+                  className="text-muted-foreground hover:text-foreground text-sm min-h-[36px] px-1"
+                >
+                  ✏️
+                </button>
+              )}
+            </div>
+            {editingName === selectedSquad && step >= 39 && (
               <div className="flex items-center gap-2">
                 <input
                   value={tempName}
@@ -127,27 +182,32 @@ export default function SquadsPage() {
                 />
                 <button onClick={confirmRename} className="text-primary text-sm font-kelly min-h-[36px] px-2">✓</button>
               </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <h2 className="font-kelly text-lg text-foreground">{currentSquad.name}</h2>
-                <button
-                  onClick={() => startRename(selectedSquad)}
-                  className="text-muted-foreground hover:text-foreground text-sm min-h-[36px] px-1"
-                >
-                  ✏️
-                </button>
-              </div>
             )}
-            <button
-              onClick={() => setActiveSquad(selectedSquad)}
-              className={`px-3 py-1.5 rounded-lg font-kelly text-xs min-h-[36px] transition-all ${
-                isActive
-                  ? 'bg-accent/20 text-accent border border-accent/40'
-                  : 'bg-surface hover:bg-primary/20 text-muted-foreground hover:text-primary border border-border'
-              }`}
-            >
-            {isActive ? '★ Активный' : 'Сделать активным'}
-            </button>
+            {step >= 39 && (
+            <div className="flex items-center gap-1.5">
+              {player.squads.length > 1 && !isActive && (
+                <button
+                  onClick={() => {
+                    deleteSquad(selectedSquad);
+                    setSelectedSquad(player.squads.find(s => s.id !== selectedSquad)?.id ?? 0);
+                  }}
+                  className="px-2 py-1.5 rounded-lg font-kelly text-xs min-h-[36px] bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/30 transition-all"
+                >
+                  🗑
+                </button>
+              )}
+              <button
+                onClick={() => setActiveSquad(selectedSquad)}
+                className={`px-3 py-1.5 rounded-lg font-kelly text-xs min-h-[36px] transition-all ${
+                  isActive
+                    ? 'bg-accent/20 text-accent border border-accent/40'
+                    : 'bg-surface hover:bg-primary/20 text-muted-foreground hover:text-primary border border-border'
+                }`}
+              >
+                {isActive ? '★ Активный' : 'Сделать активным'}
+              </button>
+            </div>
+            )}
           </div>
 
           {/* Squad power */}
@@ -159,34 +219,87 @@ export default function SquadsPage() {
             </div>
           )}
 
+          {/* Tutorial hint — equip weapon/helmet */}
+          {showEquipHint && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-2 bg-primary/10 border border-primary/40 rounded-lg px-3 py-2 mb-2"
+            >
+              <motion.span
+                className="text-primary text-xl"
+                animate={{ y: [0, -4, 0] }}
+                transition={{ repeat: Infinity, duration: 1 }}
+              >
+                👇
+              </motion.span>
+              <span className="text-sm font-kelly text-primary">
+                {step === 18 ? 'Нажми на героя → откроется его карточка с экипировкой.' : 'Нажми на героя → надень Шлем и прокачай Меч!'}
+              </span>
+              <motion.span
+                className="text-primary text-xl"
+                animate={{ y: [0, -4, 0] }}
+                transition={{ repeat: Infinity, duration: 1 }}
+              >
+                👇
+              </motion.span>
+            </motion.div>
+          )}
+
+          {/* Tutorial hint — add heroes */}
+          {showAddHint && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-2 bg-primary/10 border border-primary/40 rounded-lg px-3 py-2 mb-2"
+            >
+              <motion.span className="text-primary text-xl" animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 1 }}>👇</motion.span>
+              <span className="text-sm font-kelly text-primary">Выбери героев для отряда. В бой идут только герои из активного отряда!</span>
+              <motion.span className="text-primary text-xl" animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 1 }}>👇</motion.span>
+            </motion.div>
+          )}
+
           {/* Squad members grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 ${(showEquipHint || showAddHint) ? 'ring-2 ring-primary/50 rounded-xl p-1 animate-pulse' : ''}`}>
             <AnimatePresence mode="popLayout">
-              {squadMembers.map((pc) => pc && (
+              {squadMembers.map((pc) => {
+                if (!pc) return null;
+                const isFirstHero = showEquipHint && squadMembers.indexOf(pc) === 0;
+                return (
                 <motion.div
                   key={pc.id}
                   layout
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
-                  className="relative"
+                  className={`relative ${isFirstHero ? 'ring-2 ring-primary rounded-xl' : ''}`}
                 >
+                  {isFirstHero && (
+                    <TutorialGlow label={step === 18 ? 'Нажми на героя' : 'Выбери героя'} wide />
+                  )}
                   <HeroCard
                     champion={pc.champion}
                     level={pc.level}
                     stars={pc.stars}
+                    redStars={pc.redStars ?? 0}
                     currentHp={pc.currentHp}
-                    onClick={() => navigate(`/hero/${pc.id}`)}
+                    onClick={() => {
+                      if (isFirstHero && (step === 18 || step === 32)) advanceTutorial(step);
+                      navigate(`/hero/${pc.id}`);
+                    }}
                     compact
                   />
+                  {step >= 39 && (
                   <button
                     onClick={(e) => { e.stopPropagation(); removeFromSquadSlot(selectedSquad, pc.id); }}
                     className="absolute -top-1 -right-1 w-6 h-6 bg-destructive text-destructive-foreground rounded-full text-xs flex items-center justify-center hover:scale-110 transition-transform"
                   >
                     ✕
                   </button>
+                  )}
                 </motion.div>
-              ))}
+              );
+              })}
             </AnimatePresence>
 
             {/* Empty slots */}
@@ -271,6 +384,7 @@ export default function SquadsPage() {
                           champion={pc.champion}
                           level={pc.level}
                           stars={pc.stars}
+                          redStars={pc.redStars ?? 0}
                           currentHp={pc.currentHp}
                           compact
                         />

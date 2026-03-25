@@ -1,8 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/context/GameContext';
 import { useNavigate } from 'react-router-dom';
-import { ELEMENT_ICONS, RARITY_ORDER, getStatLabel, type Element, type PlayerChampion } from '@/data/gameData';
+import { ELEMENT_ICONS, FACTION_ICONS, RARITY_ORDER, getStatLabel, type Element, type PlayerChampion } from '@/data/gameData';
 import MythicOverlay from '@/components/game/MythicOverlay';
 import {
   type ArtifactSlot, type Artifact,
@@ -12,8 +13,10 @@ import {
   calculateArtifactStats, getActiveSetBonuses,
   formatStatValue, canEquipSlot, ACCESSORY_STAR_REQUIREMENTS,
   getArtifactUpgradeCost, MAX_ARTIFACT_LEVEL,
+  getFurnaceBoostedPrimaryValue, FURNACE_BOSS_COLORS,
 } from '@/data/artifacts';
 import StarDisplay from '@/components/game/StarDisplay';
+import FurnaceFlames from '@/components/game/FurnaceFlames';
 import SetIcon from '@/components/game/SetIcon';
 import SlotIcon from '@/components/game/SlotIcon';
 import ArtifactIcon from '@/components/game/ArtifactIcon';
@@ -189,7 +192,7 @@ export default function CollectionPage() {
                     <div className="w-full h-full flex flex-col items-center justify-center bg-surface/60">
                       <ArtifactIcon slot={slot} set={equipped.set} size={iconSize} />
                       <div className="text-[8px] font-mono text-primary mt-0.5">
-                        +{formatStatValue(equipped.primaryValue, equipped.primaryType)}
+                        +{formatStatValue(getFurnaceBoostedPrimaryValue(equipped), equipped.primaryType)}
                       </div>
                       {equipped.level > 0 && (
                         <div className="absolute top-0 right-0 bg-primary/20 text-primary text-[7px] font-mono px-0.5 rounded-bl">
@@ -295,7 +298,7 @@ export default function CollectionPage() {
                         </div>
                         <div className="text-right">
                           <div className="text-xs font-mono text-primary font-bold">
-                            +{formatStatValue(art.primaryValue, art.primaryType)} {STAT_LABELS[art.primaryStat]}
+                            +{formatStatValue(getFurnaceBoostedPrimaryValue(art), art.primaryType)} {STAT_LABELS[art.primaryStat]}
                           </div>
                         </div>
                       </div>
@@ -375,7 +378,7 @@ export default function CollectionPage() {
             +10 мест
           </button>
         )}
-        <div className="flex items-center gap-1 overflow-x-auto flex-1 min-w-0 justify-end">
+        <DragScroll className="flex items-center gap-1 flex-1 min-w-0 justify-end">
           {/* Element filter — compact on mobile */}
           <div className="flex gap-0.5 flex-shrink-0">
             <button
@@ -403,19 +406,19 @@ export default function CollectionPage() {
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
-        </div>
+        </DragScroll>
       </div>
 
       {/* ═══ MOBILE LAYOUT (< lg) ═══ */}
       <div className="lg:hidden flex flex-col h-[calc(100vh-40px)]">
         {/* Hero roster — horizontal scroll */}
-        <div className="flex-shrink-0 border-b border-border/20 bg-surface/30 px-2 py-2 overflow-x-auto">
+        <DragScroll className="flex-shrink-0 border-b border-border/20 bg-surface/30 px-2 py-2">
           <div className="flex gap-1.5">
             {sortedChampions.map(pc => (
               <HeroThumb key={pc.id} pc={pc} />
             ))}
           </div>
-        </div>
+        </DragScroll>
 
         {/* Hero info + equipment/stats */}
         {selected && champion && effectiveStats ? (
@@ -433,8 +436,14 @@ export default function CollectionPage() {
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <StarDisplay stars={selected.stars} redStars={selected.redStars ?? 0} size="xs" />
-                  <span className="text-[9px] text-muted-foreground">{champion.faction}</span>
+                  <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+                    {FACTION_ICONS[champion.faction] && <img src={FACTION_ICONS[champion.faction]} alt="" className="w-3 h-3 object-contain" />}
+                    {champion.faction}
+                  </span>
                 </div>
+              </div>
+              <div className="absolute top-1 left-2">
+{FACTION_ICONS[champion.faction] && <img src={FACTION_ICONS[champion.faction]} alt={champion.faction} className="w-20 h-20 object-contain drop-shadow-lg" />}
               </div>
               <div className="absolute top-1 right-2 text-right">
                 <div className="text-[9px] text-muted-foreground">Сила</div>
@@ -516,7 +525,10 @@ export default function CollectionPage() {
                       color: HERO_RARITY_COLORS[champion.rarity] ?? 'hsl(var(--primary))'
                     }}>{champion.rarity}</span>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{champion.faction}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 justify-center">
+                    {FACTION_ICONS[champion.faction] && <img src={FACTION_ICONS[champion.faction]} alt="" className="w-4 h-4 object-contain" />}
+                    {champion.faction}
+                  </div>
                 </div>
                 <div className="relative flex-1 flex items-center justify-center w-full max-w-md px-8">
                   <motion.img
@@ -543,6 +555,9 @@ export default function CollectionPage() {
                     className={`px-4 py-2 rounded-xl font-kelly text-sm transition-all ${inSquad ? 'bg-accent/20 text-accent border border-accent/30 hover:bg-accent/30' : 'bg-primary hover:bg-primary/90 text-primary-foreground disabled:opacity-40'}`}
                   >{inSquad ? '✕ Из отряда' : '⚔ В отряд'}</button>
                   <button onClick={() => navigate(`/compare?hero=${champion.id}`)} className="px-4 py-2 rounded-xl bg-surface/80 border border-border/30 font-kelly text-sm text-foreground hover:bg-surface transition-all">⚖️ Сравнить</button>
+                </div>
+                <div className="absolute top-4 left-4">
+                  {FACTION_ICONS[champion.faction] && <img src={FACTION_ICONS[champion.faction]} alt={champion.faction} className="w-20 h-20 object-contain drop-shadow-lg" />}
                 </div>
                 <div className="absolute top-4 right-4 text-right">
                   <div className="text-xs text-muted-foreground font-kelly">Сила</div>
@@ -599,10 +614,13 @@ export default function CollectionPage() {
                     <StarDisplay stars={art.stars} size="sm" />
                     {art.level > 0 && <span className="text-xs font-mono text-primary">+{art.level}</span>}
                   </div>
+                  {(art.furnaceLevel ?? 0) > 0 && (
+                    <FurnaceFlames furnaceLevel={art.furnaceLevel ?? 0} furnaceBossId={art.furnaceBossId} size="sm" />
+                  )}
                   <div className="bg-background/40 rounded-md px-2 py-1.5 mb-2">
                     <div className="text-[10px] text-muted-foreground mb-0.5">Основная</div>
                     <div className="text-sm font-mono text-primary font-semibold">
-                      +{formatStatValue(art.primaryValue, art.primaryType)} {STAT_LABELS[art.primaryStat]}
+                      +{formatStatValue(getFurnaceBoostedPrimaryValue(art), art.primaryType)} {STAT_LABELS[art.primaryStat]}
                     </div>
                   </div>
                   {(unlocked.length > 0 || locked.length > 0) && (

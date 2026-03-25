@@ -5,6 +5,8 @@ import { useGame } from '@/context/GameContext';
 import { computeGodsCoins } from '@/data/arenaData';
 import iconSouls from '@/assets/icons/icon_souls.png';
 import QuickBuyButton from '@/components/game/QuickBuyButton';
+import { useUnclaimedAchievements } from '@/hooks/useUnclaimedAchievements';
+import { useUnclaimedDailyQuests } from '@/hooks/useUnclaimedDailyQuests';
 
 const mainItems = [
   { path: '/', label: 'Стан', icon: '/ui/icon_squads.png' },
@@ -25,10 +27,13 @@ const menuItems = [
 
 export default function GameNav() {
   const location = useLocation();
-  const { player, saving, getEnergyInfo, arenaState } = useGame();
+  const { player, saving, getEnergyInfo, arenaState, isXpBoosterActive, isRuneBoosterActive, isSoulBoosterActive, isVipActive } = useGame();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const unclaimedCount = useUnclaimedAchievements();
+  const unclaimedDailyCount = useUnclaimedDailyQuests();
+  const totalBadge = unclaimedCount + unclaimedDailyCount;
 
   const hiddenPaths = ['/collection', '/campaign', '/battle', '/trials', '/squads', '/more'];
   
@@ -120,6 +125,10 @@ export default function GameNav() {
             {(() => { const { coins } = computeGodsCoins(arenaState.godsCoins, arenaState.lastGodsCoinUpdate); return coins; })()}
             <QuickBuyButton type="coins" />
           </span>
+          {isXpBoosterActive() && <img src="/ui/icon_booster_xp.png" alt="×2 XP" className="w-4 h-4 object-contain animate-pulse" title="Пламя Ратоборца активно" loading="lazy" />}
+          {isRuneBoosterActive() && <img src="/ui/icon_booster_runes.png" alt="×2 Руны" className="w-4 h-4 object-contain animate-pulse" title="Рунный Прилив активен" loading="lazy" />}
+          {isSoulBoosterActive() && <img src="/ui/icon_booster_souls.png" alt="×2 Души" className="w-4 h-4 object-contain animate-pulse" title="Зов Предков активен" loading="lazy" />}
+          {isVipActive() && <span className="text-sm animate-pulse" title="VIP активна">👑</span>}
           {saving && <span className="text-muted-foreground text-xs animate-pulse">💾</span>}
         </div>
 
@@ -153,7 +162,14 @@ export default function GameNav() {
             onClick={() => { setMenuOpen(!menuOpen); }}
             className="relative flex flex-col items-center gap-0.5 px-4 py-1 min-w-[56px] min-h-[44px] justify-center"
           >
-            <img src="/ui/icon_more.png" alt="Ещё" className="w-6 h-6 object-contain" />
+            <div className="relative">
+              <img src="/ui/icon_more.png" alt="Ещё" className="w-6 h-6 object-contain" />
+              {totalBadge > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold px-1 animate-pulse shadow-lg">
+                  {totalBadge > 9 ? '9+' : totalBadge}
+                </span>
+              )}
+            </div>
             <span className={`text-[11px] font-kelly ${menuOpen ? 'text-primary' : 'text-muted-foreground'}`}>
               Ещё
             </span>

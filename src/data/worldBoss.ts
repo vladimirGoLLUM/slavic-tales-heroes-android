@@ -1,5 +1,6 @@
 import type { Champion, Skill, Element } from '@/data/gameData';
-import type { EffectApplication } from '@/types/game';
+import type { EffectApplication, EffectType } from '@/types/game';
+import hydraBattle from '@/assets/hydra/hydra_battle.png';
 
 export const WORLD_BOSS_MAX_ATTACKS = 3;
 
@@ -35,8 +36,8 @@ export const HYDRA_BOSS: WorldBossData = {
   name: 'Гидра',
   title: 'Первый Мировой Босс',
   element: 'Тень',
-  imageUrl: '/ui/icon_hydra.png',
-  bgUrl: '/ui/worldboss_bg.png',
+  imageUrl: hydraBattle,
+  bgUrl: hydraBattle,
   baseStats: {
     hp: 999999999,
     atk: 1500,
@@ -151,6 +152,103 @@ export const REWARD_TIERS: WorldBossRewardTier[] = [
 ];
 
 export const BASE_ATTACK_REWARD = { runes: 50, souls: 100 };
+
+// === World Boss Modifier System ===
+
+export interface WorldBossModifier {
+  id: string;
+  icon: string;
+  label: string;
+  description: string;
+  playerDebuffs?: { type: EffectType; value: number; duration: number }[];
+  bossBuffs?: { type: EffectType; value: number; duration: number }[];
+}
+
+export interface WorldBossModifiers {
+  bossAura: { icon: string; label: string; effects: { type: EffectType; value: number; duration: number }[] };
+  modifiers: WorldBossModifier[];
+}
+
+/** Hydra modifiers — always active */
+export const HYDRA_MODIFIERS: WorldBossModifiers = {
+  bossAura: {
+    icon: '🐍',
+    label: 'Многоглавая Гидра: 4 головы одновременно',
+    effects: [
+      { type: 'atk_up', value: 20, duration: 99 },
+      { type: 'heal_over_time', value: 3, duration: 99 },
+    ],
+  },
+  modifiers: [
+    {
+      id: 'hydra_heads',
+      icon: '🐉',
+      label: '6 типов голов',
+      description: 'Пул из 6 голов — 4 активны. При обезглавливании голова возрождается через 2 хода как новый тип',
+    },
+    {
+      id: 'hydra_escalation',
+      icon: '📈',
+      label: 'Эскалация раундов',
+      description: 'После смерти всех 4 голов — Возрождение: +25% АТК, +20% ЗДР, +10% СКР для всех голов',
+    },
+    {
+      id: 'hydra_swallow',
+      icon: '🐍',
+      label: 'Проглатывание',
+      description: 'Гидра метит героя и проглатывает через 10 ходов. Нанесите 3% от макс. ЗДР голов для спасения',
+      playerDebuffs: [{ type: 'poison', value: 0, duration: 1 }],
+    },
+    {
+      id: 'hydra_passives',
+      icon: '⚡',
+      label: 'Пассивки голов',
+      description: 'Каждая живая голова даёт пассивный эффект: яд, отражение, контрудар, замедление и др.',
+    },
+  ],
+};
+
+/** Cerberus modifiers — always active */
+export const CERBERUS_MODIFIERS: WorldBossModifiers = {
+  bossAura: {
+    icon: '🔥',
+    label: 'Страж Врат Нави: 10 способностей по циклу',
+    effects: [
+      { type: 'atk_up', value: 25, duration: 99 },
+      { type: 'spd_up', value: 15, duration: 99 },
+    ],
+  },
+  modifiers: [
+    {
+      id: 'cerberus_cycle',
+      icon: '🔥',
+      label: 'Возрождение из пепла',
+      description: 'При гибели Цербер возрождается с полным HP и усиленными характеристиками: +25% АТК, +20% ЗДР, +20% СКР за каждое возрождение',
+    },
+    {
+      id: 'cerberus_immune',
+      icon: '🛡️',
+      label: 'Иммунитет к контролю',
+      description: 'Устойчив к оглушению, заморозке, сну, страху и превращению',
+    },
+    {
+      id: 'cerberus_light_weak',
+      icon: '☀️',
+      label: 'Уязвим к Свету',
+      description: 'Герои стихии Свет наносят +30% урона',
+    },
+    {
+      id: 'cerberus_debuffs',
+      icon: '💀',
+      label: 'Ожоги и проклятия',
+      description: 'Накладывает ожог, замедление, страх, оглушение, снятие баффов, снижение ЗАЩ/СОПР',
+    },
+  ],
+};
+
+export function getWorldBossModifiers(bossId: string): WorldBossModifiers {
+  return bossId === 'cerberus' ? CERBERUS_MODIFIERS : HYDRA_MODIFIERS;
+}
 
 export function getRewardTier(rank: number, totalPlayers: number): WorldBossRewardTier {
   for (const tier of REWARD_TIERS) {

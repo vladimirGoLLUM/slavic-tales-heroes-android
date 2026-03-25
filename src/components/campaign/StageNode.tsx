@@ -24,18 +24,32 @@ export default function StageNode({
         !isUnlocked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
       }`}
     >
+      {/* Pulsating ring for current stage */}
+      {isCurrent && (
+        <motion.div
+          className="absolute inset-0 flex items-start justify-center"
+          style={{ top: 0 }}
+        >
+          <motion.div
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 border-accent"
+            animate={{ scale: [1, 1.35, 1.35], opacity: [0.7, 0, 0] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
+          />
+        </motion.div>
+      )}
+
       {/* Node circle */}
       <div
         className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center text-lg sm:text-xl font-kelly border-2 transition-all ${
           isCleared
             ? 'bg-primary/20 border-primary text-primary'
             : isCurrent
-            ? 'bg-accent/20 border-accent text-accent animate-pulse'
+            ? 'bg-accent/20 border-accent text-accent'
             : isUnlocked
             ? 'bg-surface border-border text-foreground hover:border-primary/50'
             : 'bg-muted/30 border-muted text-muted-foreground'
         }`}
-        style={isCurrent ? { boxShadow: '0 0 16px hsl(var(--accent) / 0.5)' } : undefined}
+        style={isCurrent ? { boxShadow: '0 0 20px hsl(var(--accent) / 0.6)' } : undefined}
       >
         {isCleared ? '✓' : isBoss ? '👑' : stageNumber}
       </div>

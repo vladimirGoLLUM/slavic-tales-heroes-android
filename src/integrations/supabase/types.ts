@@ -14,15 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      achievements: {
+        Row: {
+          achievement_key: string
+          claimed: boolean
+          claimed_at: string | null
+          created_at: string
+          id: string
+          progress: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          achievement_key: string
+          claimed?: boolean
+          claimed_at?: string | null
+          created_at?: string
+          id?: string
+          progress?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          achievement_key?: string
+          claimed?: boolean
+          claimed_at?: string | null
+          created_at?: string
+          id?: string
+          progress?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       arena_battle_history: {
         Row: {
           attacker_id: string
           attacker_name: string
           attacker_rating: number
+          attacker_squad: Json | null
           created_at: string
           defender_id: string | null
           defender_name: string
           defender_rating: number
+          defender_squad: Json | null
           id: string
           rating_change: number
           result: string
@@ -31,10 +66,12 @@ export type Database = {
           attacker_id: string
           attacker_name?: string
           attacker_rating?: number
+          attacker_squad?: Json | null
           created_at?: string
           defender_id?: string | null
           defender_name?: string
           defender_rating?: number
+          defender_squad?: Json | null
           id?: string
           rating_change?: number
           result?: string
@@ -43,13 +80,45 @@ export type Database = {
           attacker_id?: string
           attacker_name?: string
           attacker_rating?: number
+          attacker_squad?: Json | null
           created_at?: string
           defender_id?: string | null
           defender_name?: string
           defender_rating?: number
+          defender_squad?: Json | null
           id?: string
           rating_change?: number
           result?: string
+        }
+        Relationships: []
+      }
+      daily_quests: {
+        Row: {
+          claimed: boolean
+          created_at: string
+          id: string
+          progress: number
+          quest_date: string
+          quest_key: string
+          user_id: string
+        }
+        Insert: {
+          claimed?: boolean
+          created_at?: string
+          id?: string
+          progress?: number
+          quest_date?: string
+          quest_key: string
+          user_id: string
+        }
+        Update: {
+          claimed?: boolean
+          created_at?: string
+          id?: string
+          progress?: number
+          quest_date?: string
+          quest_key?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -57,6 +126,7 @@ export type Database = {
         Row: {
           arena_power: number
           arena_rating: number
+          arena_squad: Json | null
           avatar_url: string | null
           created_at: string
           game_data: Json | null
@@ -67,6 +137,7 @@ export type Database = {
         Insert: {
           arena_power?: number
           arena_rating?: number
+          arena_squad?: Json | null
           avatar_url?: string | null
           created_at?: string
           game_data?: Json | null
@@ -77,6 +148,7 @@ export type Database = {
         Update: {
           arena_power?: number
           arena_rating?: number
+          arena_squad?: Json | null
           avatar_url?: string | null
           created_at?: string
           game_data?: Json | null

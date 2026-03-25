@@ -1,5 +1,5 @@
 import { type Champion, CHAMPIONS, type Rarity } from './gameData';
-import { type ArtifactRarity, generateArtifact, type Artifact } from './artifacts';
+import { type ArtifactRarity, type ArtifactSet, generateArtifact, type Artifact } from './artifacts';
 import { supabase } from '@/integrations/supabase/client';
 
 // ═══════════════════════════════════════════════════
@@ -150,13 +150,13 @@ export function getWeeklyGodsCoins(tier: ArenaMetalTier, position: number): numb
   return reward.godsCoins.rest;
 }
 
-/** Returns ms until next Sunday 00:00 UTC */
+/** Returns ms until next Monday 00:00 UTC */
 export function getTimeUntilWeeklyReset(): number {
   const now = new Date();
-  const dayOfWeek = now.getUTCDay(); // 0=Sun
-  const daysUntilSun = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
-  const nextSunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSun, 0, 0, 0));
-  return nextSunday.getTime() - now.getTime();
+  const dayOfWeek = now.getUTCDay(); // 0=Sun, 1=Mon
+  const daysUntilMon = dayOfWeek === 0 ? 1 : dayOfWeek === 1 ? 7 : 8 - dayOfWeek;
+  const nextMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilMon, 0, 0, 0));
+  return nextMonday.getTime() - now.getTime();
 }
 
 // ═══════════════════════════════════════════════════
@@ -179,6 +179,7 @@ export interface ArenaOpponent {
   power: number;
   heroes: Champion[];
   defeated: boolean;
+  avatarUrl?: string | null;
 }
 
 /** Scale hero stats for arena opponent based on rating */
@@ -255,7 +256,7 @@ export async function fetchArenaOpponentsFromDB(
 
     const { data: profiles, error } = await supabase
       .from('profiles')
-      .select('id, username, arena_rating, arena_power')
+      .select('id, username, arena_rating, arena_power, arena_squad, avatar_url')
       .neq('id', currentUserId)
       .gte('arena_rating', minRating)
       .lte('arena_rating', maxRating)
@@ -271,17 +272,27 @@ export async function fetchArenaOpponentsFromDB(
 
     const opponents: ArenaOpponent[] = selected.map((p, i) => {
       const rating = p.arena_rating ?? 0;
-      const heroPool = [...CHAMPIONS].sort(() => Math.random() - 0.5);
-      const heroes = heroPool.slice(0, 4).map(c => scaleChampionForRating(c, rating));
+      const savedSquad = (p as any).arena_squad as Champion[] | null;
+      
+      // Use saved squad if available, otherwise generate random heroes
+      let heroes: Champion[];
+      if (savedSquad && Array.isArray(savedSquad) && savedSquad.length > 0) {
+        heroes = savedSquad;
+      } else {
+        const heroPool = [...CHAMPIONS].sort(() => Math.random() - 0.5);
+        heroes = heroPool.slice(0, 4).map(c => scaleChampionForRating(c, rating));
+      }
+      
       const power = p.arena_power || heroes.reduce((sum, h) => sum + calculatePowerFromStats(h.baseStats), 0);
 
       return {
         id: `arena-db-${p.id}-${Date.now()}-${i}`,
-        name: p.username || 'Витязь',
+        name: p.username || 'Игрок',
         rating,
         power,
         heroes,
         defeated: false,
+        avatarUrl: (p as any).avatar_url ?? null,
       };
     });
 
@@ -331,7 +342,8 @@ export function generateWeeklyRewardArtifacts(tier: ArenaMetalTier, subRank: num
   const count = subRank; // 1-5 artifacts based on subrank
   const artifacts: Artifact[] = [];
   for (let i = 0; i < count; i++) {
-    artifacts.push(generateArtifact(rarity));
+    const set = ARENA_SETS[Math.floor(Math.random() * ARENA_SETS.length)] as ArtifactSet;
+    artifacts.push(generateArtifact(rarity, 0, undefined, set));
   }
   return artifacts;
 }
@@ -426,6 +438,8 @@ export interface ArenaState {
   claimedRankMilestones: string[];
   /** Week key when milestones were last reset */
   lastMilestoneWeek: string;
+  /** Pending weekly reward awaiting manual claim */
+  pendingWeeklyReward?: WeeklyRewardResult | null;
 }
 
 /** Get a unique key for a rank milestone */
@@ -461,10 +475,38 @@ function getWeekKey(date: Date): string {
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
-/** Weekly decay: each tier drops to the previous tier rank 1 */
-export function applyWeeklyDecay(state: ArenaState): ArenaState {
+export interface WeeklyRewardResult {
+  souls: number;
+  runes: number;
+  mithrilRunes: number;
+  godsCoins: number;
+  artifacts: Artifact[];
+  tierLabel: string;
+}
+
+/** Weekly decay: each tier drops to the previous tier rank 1, returns pending rewards */
+export function applyWeeklyDecay(state: ArenaState): { state: ArenaState; pendingReward: WeeklyRewardResult | null } {
   const currentWeek = getWeekKey(new Date());
-  if (state.lastWeeklyDecay === currentWeek) return state;
+  if (state.lastWeeklyDecay === currentWeek) return { state, pendingReward: null };
+
+  // Calculate reward from previous week's rank (before decay)
+  let pendingReward: WeeklyRewardResult | null = null;
+  if (state.lastWeeklyReward !== currentWeek && state.arenaRating > 0) {
+    const rank = getRankFromRating(state.arenaRating);
+    const reward = WEEKLY_ARENA_REWARDS[rank.tier];
+    const godsCoins = typeof reward.godsCoins === 'number' ? reward.godsCoins : reward.godsCoins.rest;
+    const chestCount = getWeeklyChestCount(reward, rank.subRank);
+    const artifacts = generateWeeklyRewardArtifacts(rank.tier, chestCount);
+
+    pendingReward = {
+      souls: reward.souls,
+      runes: reward.runes,
+      mithrilRunes: reward.mithrilRunes,
+      godsCoins,
+      artifacts,
+      tierLabel: rank.label,
+    };
+  }
 
   const DECAY_MAP: Record<string, number> = {
     'Лунный Мефрил': 3000,
@@ -478,15 +520,22 @@ export function applyWeeklyDecay(state: ArenaState): ArenaState {
   const newRating = DECAY_MAP[rank.tier] ?? 0;
 
   if (newRating >= state.arenaRating) {
-    return { ...state, lastWeeklyDecay: currentWeek, claimedRankMilestones: [], lastMilestoneWeek: currentWeek };
+    return {
+      state: { ...state, lastWeeklyDecay: currentWeek, lastWeeklyReward: currentWeek, claimedRankMilestones: [], lastMilestoneWeek: currentWeek },
+      pendingReward,
+    };
   }
 
   return {
-    ...state,
-    arenaRating: newRating,
-    lastWeeklyDecay: currentWeek,
-    arenaOpponents: generateArenaOpponents(newRating, 10),
-    claimedRankMilestones: [],
-    lastMilestoneWeek: currentWeek,
+    state: {
+      ...state,
+      arenaRating: newRating,
+      lastWeeklyDecay: currentWeek,
+      lastWeeklyReward: currentWeek,
+      arenaOpponents: generateArenaOpponents(newRating, 10),
+      claimedRankMilestones: [],
+      lastMilestoneWeek: currentWeek,
+    },
+    pendingReward,
   };
 }

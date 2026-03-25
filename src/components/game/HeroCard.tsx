@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { type Champion, ELEMENT_ICONS, RARITY_ORDER } from '@/data/gameData';
+import { type Champion, ELEMENT_ICONS, FACTION_ICONS, RARITY_ORDER } from '@/data/gameData';
 import StarDisplay from './StarDisplay';
 import MythicOverlay from './MythicOverlay';
 
@@ -209,7 +209,10 @@ const HeroCard = React.memo(function HeroCard({ champion, level = 1, stars = 0, 
           </h3>
 
           <div className="flex items-center justify-between mt-0.5">
-            <span className="text-[10px] sm:text-sm text-muted-foreground truncate">{champion.faction}</span>
+            <span className="text-[10px] sm:text-sm text-muted-foreground truncate flex items-center gap-1">
+              {FACTION_ICONS[champion.faction] && <img src={FACTION_ICONS[champion.faction]} alt="" className="w-3 h-3 sm:w-4 sm:h-4 object-contain" />}
+              {champion.faction}
+            </span>
             <StarDisplay stars={stars} redStars={redStars} size="xs" />
           </div>
 

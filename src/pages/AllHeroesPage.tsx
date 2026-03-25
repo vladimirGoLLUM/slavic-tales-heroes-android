@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { CHAMPIONS, ELEMENT_ICONS, type Element, type Rarity, type Skill } from '@/data/gameData';
+import { CHAMPIONS, ELEMENT_ICONS, FACTION_ICONS, type Element, type Rarity, type Skill } from '@/data/gameData';
 import { EFFECT_ICONS, EFFECT_NAMES } from '@/types/game';
 import EffectIcon from '@/components/game/EffectIcon';
 
@@ -133,23 +134,24 @@ export default function AllHeroesPage() {
               ))}
             </div>
 
-            <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+            <DragScroll className="-mx-3 px-3 sm:mx-0 sm:px-0">
               <div className="flex sm:flex-wrap gap-1.5 sm:gap-2">
                 {FACTIONS.map(f => (
                   <button
                     key={f}
                     onClick={() => setSelectedFaction(selectedFaction === f ? null : f)}
-                    className={`px-2 py-1 rounded-lg text-xs font-kelly transition-all border whitespace-nowrap min-h-[36px] flex-shrink-0 ${
+                    className={`px-2 py-1 rounded-lg text-xs font-kelly transition-all border whitespace-nowrap min-h-[36px] flex-shrink-0 flex items-center gap-1 ${
                       selectedFaction === f
                         ? 'bg-primary/20 border-primary/50 text-primary'
                         : 'bg-surface/40 border-border/30 text-muted-foreground hover:border-border'
                     }`}
                   >
+                    {FACTION_ICONS[f] && <img src={FACTION_ICONS[f]} alt={f} className="w-4 h-4 object-contain" />}
                     {f}
                   </button>
                 ))}
               </div>
-            </div>
+            </DragScroll>
 
             {hasFilters && (
               <button onClick={clearFilters} className="text-xs text-accent font-kelly hover:text-accent/80 transition-colors min-h-[36px]">
@@ -188,6 +190,7 @@ export default function AllHeroesPage() {
                         <span className={`text-[10px] sm:text-xs font-kelly ${RARITY_TEXT[champion.rarity]}`}>{champion.rarity}</span>
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
+                        {FACTION_ICONS[champion.faction] && <img src={FACTION_ICONS[champion.faction]} alt="" className="w-3.5 h-3.5 object-contain" />}
                         <span className="text-[10px] sm:text-xs text-muted-foreground">{champion.faction}</span>
                       </div>
                     </div>

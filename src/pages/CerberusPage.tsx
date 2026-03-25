@@ -1,18 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { isBossAvailableToday, getTimeUntilNextAvailable, formatCountdown, getBossAvailableDaysText, getNextAvailableDayName } from '@/utils/bossSchedule';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useGame } from '@/context/GameContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { WORLD_BOSS_MAX_ATTACKS, BASE_ATTACK_REWARD, getRewardTier } from '@/data/worldBoss';
+import { WORLD_BOSS_MAX_ATTACKS, BASE_ATTACK_REWARD, getRewardTier, CERBERUS_MODIFIERS } from '@/data/worldBoss';
 import { CERBERUS_BOSS, CERBERUS_REWARD_TIERS, getCerberusRewardTier } from '@/data/worldBossCerberus';
+import BossModifiersPanel from '@/components/game/BossModifiersPanel';
 import { generateArtifact, type ArtifactRarity } from '@/data/artifacts';
 import iconSouls from '@/assets/icons/icon_souls.png';
+import PlayerAvatar from '@/components/game/PlayerAvatar';
+import SquadPickerModal from '@/components/game/SquadPickerModal';
 
 interface LeaderboardEntry {
   id: string;
   username: string;
+  avatar_url?: string | null;
   damage_today: number;
   damage_total: number;
 }
@@ -26,18 +30,51 @@ function formatDamage(n: number): string {
 export default function CerberusPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { player, recordCerberusDamage, addRunes, addSouls, claimCerberusRewards } = useGame();
+  const { player, recordCerberusDamage, addRunes, addSouls, claimCerberusRewards, spendMithrilRunes, setActiveSquad, isVipActive } = useGame();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'today' | 'total'>('today');
+  const [dbDamageToday, setDbDamageToday] = useState<number | null>(null);
+  const [showSquadPicker, setShowSquadPicker] = useState(false);
+  const pendingBattleAction = useRef<(() => void) | null>(null);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const isNewDay = player.lastCerberusAttackDate !== todayStr;
   const attacksLeft = isNewDay ? WORLD_BOSS_MAX_ATTACKS : player.cerberusAttacksLeft;
-  const damageToday = isNewDay ? 0 : player.cerberusDamageToday;
+  const localDamageToday = isNewDay ? 0 : player.cerberusDamageToday;
+  const damageToday = dbDamageToday ?? localDamageToday;
   const hasPendingRewards = isNewDay && player.cerberusDamageToday > 0 && !player.cerberusRewardsClaimed;
   const rewardsClaimed = !hasPendingRewards && (isNewDay || player.cerberusRewardsClaimed);
   const pendingDamage = player.cerberusDamageToday;
+
+  const [fetchTrigger, setFetchTrigger] = useState(0);
+  useEffect(() => {
+    if (!user) return;
+    const fetchOwn = async () => {
+      const { data } = await supabase
+        .from('world_boss_damage')
+        .select('damage_today, last_attack_date')
+        .eq('user_id', user.id)
+        .eq('boss_id', 'cerberus')
+        .maybeSingle();
+      if (data && data.last_attack_date === todayStr) {
+        setDbDamageToday(data.damage_today);
+      } else {
+        setDbDamageToday(0);
+      }
+    };
+    fetchOwn();
+    // Re-fetch after a short delay to catch async DB writes from battle
+    const timer = setTimeout(fetchOwn, 2000);
+    return () => clearTimeout(timer);
+  }, [user, todayStr, localDamageToday, fetchTrigger]);
+
+  // Re-fetch on page focus (returning from battle)
+  useEffect(() => {
+    const onFocus = () => setFetchTrigger(t => t + 1);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   const bossAvailable = isBossAvailableToday('cerberus');
   const [countdown, setCountdown] = useState('');
@@ -55,24 +92,33 @@ export default function CerberusPage() {
 
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    const todayFilter = new Date().toISOString().slice(0, 10);
+    
+    let query = supabase
       .from('world_boss_damage')
-      .select('user_id, damage_today, damage_total')
-      .eq('boss_id', 'cerberus')
-      .order(tab === 'today' ? 'damage_today' : 'damage_total', { ascending: false })
-      .limit(100);
+      .select('user_id, damage_today, damage_total, last_attack_date')
+      .eq('boss_id', 'cerberus');
+
+    if (tab === 'today') {
+      query = query.eq('last_attack_date', todayFilter).order('damage_today', { ascending: false });
+    } else {
+      query = query.order('damage_total', { ascending: false });
+    }
+
+    const { data } = await query.limit(100);
 
     if (data) {
       const userIds = data.map(d => d.user_id);
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, username')
+        .select('id, username, avatar_url')
         .in('id', userIds);
 
-      const profileMap = new Map(profiles?.map(p => [p.id, p.username]) ?? []);
+      const profileMap = new Map(profiles?.map(p => [p.id, { username: p.username, avatar_url: p.avatar_url }]) ?? []);
       setLeaderboard(data.map(d => ({
         id: d.user_id,
-        username: profileMap.get(d.user_id) ?? 'Витязь',
+        username: profileMap.get(d.user_id)?.username ?? 'Игрок',
+        avatar_url: profileMap.get(d.user_id)?.avatar_url ?? null,
         damage_today: d.damage_today,
         damage_total: d.damage_total,
       })));
@@ -92,13 +138,44 @@ export default function CerberusPage() {
     return () => { supabase.removeChannel(channel); };
   }, [fetchLeaderboard]);
 
-  const handleAttack = () => {
+  const executeAttack = () => {
     if (attacksLeft <= 0 || !bossAvailable) return;
     sessionStorage.setItem('worldBossBattle', JSON.stringify({
       bossId: CERBERUS_BOSS.id,
       todayDamage: damageToday,
     }));
     navigate('/battle?mode=worldboss');
+  };
+
+  const handleAttack = () => {
+    pendingBattleAction.current = executeAttack;
+    setShowSquadPicker(true);
+  };
+
+  const ENTRY_COST = 1000;
+  const canBuyEntry = (attacksLeft <= 0 || !bossAvailable) && player.mithrilRunes >= ENTRY_COST;
+
+  const executeBuyEntry = () => {
+    if (!spendMithrilRunes(ENTRY_COST)) return;
+    sessionStorage.setItem('worldBossBattle', JSON.stringify({
+      bossId: CERBERUS_BOSS.id,
+      todayDamage: damageToday,
+    }));
+    navigate('/battle?mode=worldboss');
+  };
+
+  const handleBuyEntry = () => {
+    pendingBattleAction.current = executeBuyEntry;
+    setShowSquadPicker(true);
+  };
+
+  const handleSquadConfirm = (squadId: number) => {
+    setActiveSquad(squadId);
+    setShowSquadPicker(false);
+    setTimeout(() => {
+      pendingBattleAction.current?.();
+      pendingBattleAction.current = null;
+    }, 0);
   };
 
   const handleClaimRewards = async () => {
@@ -184,6 +261,11 @@ export default function CerberusPage() {
               </div>
             </div>
 
+            {/* Modifiers */}
+            <div className="mb-3">
+              <BossModifiersPanel modifiers={CERBERUS_MODIFIERS} />
+            </div>
+
             {/* Schedule info */}
             <div className="text-[10px] text-muted-foreground mb-2 text-center">
               Доступен: {getBossAvailableDaysText('cerberus')}
@@ -198,6 +280,15 @@ export default function CerberusPage() {
               >
                 {!bossAvailable ? `🔒 ${countdown}` : `⚔️ Атаковать ${attacksLeft > 0 ? `(${attacksLeft})` : ''}`}
               </button>
+              {(attacksLeft <= 0 || !bossAvailable) && (
+                <button
+                  onClick={handleBuyEntry}
+                  disabled={!canBuyEntry}
+                  className="flex-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-kelly py-3 rounded-xl transition-all active:scale-95 min-h-[48px] text-sm"
+                >
+                  💎 Вход за {ENTRY_COST} МР
+                </button>
+              )}
               {hasPendingRewards && (
                 <button
                   onClick={handleClaimRewards}
@@ -279,6 +370,7 @@ export default function CerberusPage() {
                     }`}>
                       {i + 1}
                     </span>
+                    <PlayerAvatar src={entry.avatar_url} size={22} isVip={isMe ? isVipActive() : false} />
                     <span className={`flex-1 truncate ${isMe ? 'font-kelly text-accent' : 'text-foreground'}`}>
                       {entry.username}
                     </span>
@@ -292,31 +384,68 @@ export default function CerberusPage() {
           )}
         </motion.div>
 
-        {/* Boss abilities */}
+        {/* Boss abilities — full cycle */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
           className="bg-surface/60 rounded-2xl border border-border/50 p-4 card-lubok mt-4"
         >
-          <h3 className="font-kelly text-sm text-foreground mb-2">Способности босса</h3>
+          <h3 className="font-kelly text-sm text-foreground mb-2">Способности Цербера (цикл 10 раундов)</h3>
           <div className="space-y-1.5 text-[11px] text-muted-foreground">
-            <div><span className="text-foreground font-kelly">Раунд 1:</span> Укус Цербера — мощная атака по одному</div>
-            <div><span className="text-foreground font-kelly">Раунд 2:</span> Пламя Ада — АОЕ + ожог (5% HP, 2 хода)</div>
-            <div><span className="text-foreground font-kelly">Раунд 3:</span> Ледяной Вой — замедление всех (-20% СКР)</div>
-            <div><span className="text-foreground font-kelly">Раунд 4:</span> Теневой Шёпот — страх одного героя</div>
-            <div><span className="text-foreground font-kelly">Раунд 5:</span> Гнев Цербера — 3 головы по случайным целям</div>
-            <div><span className="text-foreground font-kelly">Раунд 6:</span> Цепи Подземья — оглушение случайного</div>
-            <div><span className="text-foreground font-kelly">Раунд 7:</span> Дыхание Хаоса — массовый урон + снятие баффов</div>
-            <div><span className="text-foreground font-kelly">Раунд 8:</span> Зов Тьмы — теневой урон + ожог</div>
-            <div><span className="text-foreground font-kelly">Раунд 9:</span> Кровавая Луна — +30% АТК, +10% вампиризм</div>
-            <div><span className="text-foreground font-kelly">Раунд 10:</span> Врата Нави — -30% ЗЩТ и СОПР на всех</div>
-            <div className="text-[10px] text-muted-foreground/70 pt-1 border-t border-border/20">
-              Способности зацикливаются с усилением (+10%/цикл). Босс устойчив к контролю. Уязвим к Свету (+30% урона).
+            <div className="flex items-start gap-2">
+              <span className="text-sm">🦷</span>
+              <div><span className="text-foreground font-kelly">Р1 — Укус Цербера:</span> Мощная атака по одному герою (×1.5 АТК)</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">🔥</span>
+              <div><span className="text-foreground font-kelly">Р2 — Пламя Ада:</span> АОЕ урон + ожог 5% ЗДР на 2 хода</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">❄️</span>
+              <div><span className="text-foreground font-kelly">Р3 — Ледяной Вой:</span> -20% СКР всем героям на 2 хода</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">😱</span>
+              <div><span className="text-foreground font-kelly">Р4 — Теневой Шёпот:</span> Страх одного героя на 1 ход</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">⚔️</span>
+              <div><span className="text-foreground font-kelly">Р5 — Гнев Цербера:</span> 3 головы атакуют случайные цели (×1.2 АТК)</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">⛓️</span>
+              <div><span className="text-foreground font-kelly">Р6 — Цепи Подземья:</span> Оглушение случайного героя на 1 ход</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">💨</span>
+              <div><span className="text-foreground font-kelly">Р7 — Дыхание Хаоса:</span> АОЕ урон (×1.5 АТК) + снятие всех баффов</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">🌑</span>
+              <div><span className="text-foreground font-kelly">Р8 — Зов Тьмы:</span> АОЕ урон + ожог 3% ЗДР на 2 хода (шанс 80%)</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">🩸</span>
+              <div><span className="text-foreground font-kelly">Р9 — Кровавая Луна:</span> Самобафф: +30% АТК, +10% вампиризм на 3 хода</div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">🚪</span>
+              <div><span className="text-foreground font-kelly">Р10 — Врата Нави:</span> Проклятие: -30% ЗАЩ и -30% СОПР на 2 хода всем</div>
+            </div>
+            <div className="text-[10px] text-muted-foreground/70 pt-2 border-t border-border/20 space-y-1">
+              <div>🔥 При гибели Цербер возрождается из пепла с полным HP: +25% АТК, +20% ЗДР, +20% СКР за каждое возрождение.</div>
+              <div>🛡️ Иммунитет: оглушение, заморозка, сон, страх, превращение.</div>
+              <div>☀️ Уязвим к стихии Свет (+30% урона).</div>
             </div>
           </div>
         </motion.div>
       </div>
+      <SquadPickerModal
+        open={showSquadPicker}
+        onClose={() => { setShowSquadPicker(false); pendingBattleAction.current = null; }}
+        onConfirm={handleSquadConfirm}
+      />
     </div>
   );
 }

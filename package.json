@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:android": "vite build && npx cap copy && npx cap sync && npx cap open android"
+    "build:android": "vite build && npx cap copy && npx cap sync android && npx cap open android",
+    "android:sync": "npx cap sync android",
+    "android:aab:release": "vite build && npx cap copy && npx cap sync android && cd android && gradlew.bat bundleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",

@@ -2,118 +2,173 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Обнуление и базовые стили */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  :root {
+    /* Core palette - Dark Lubok */
+    --background: 140 20% 6%;
+    --foreground: 40 30% 85%;
+    
+    --surface: 30 15% 12%;
+    --surface-foreground: 40 25% 80%;
+    
+    --card: 30 15% 10%;
+    --card-foreground: 40 25% 80%;
+    
+    --popover: 30 15% 10%;
+    --popover-foreground: 40 25% 80%;
+    
+    --primary: 45 60% 55%;
+    --primary-foreground: 140 20% 6%;
+    
+    --secondary: 30 15% 18%;
+    --secondary-foreground: 40 25% 80%;
+    
+    --muted: 30 10% 16%;
+    --muted-foreground: 40 10% 50%;
+    
+    --accent: 0 65% 45%;
+    --accent-foreground: 40 30% 90%;
+    
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 95%;
+    
+    --border: 45 20% 20%;
+    --input: 30 15% 18%;
+    --ring: 45 60% 55%;
+    --radius: 0.75rem;
+
+    /* Element colors */
+    --element-fire: 15 80% 50%;
+    --element-water: 200 70% 50%;
+    --element-wood: 120 50% 40%;
+    --element-stone: 30 10% 50%;
+    --element-shadow: 280 40% 30%;
+
+    /* Rarity colors */
+    --rarity-common: 40 10% 50%;
+    --rarity-rare: 145 50% 45%;
+    --rarity-epic: 220 60% 55%;
+    --rarity-legendary: 280 55% 55%;
+    --rarity-mythic: 40 85% 55%;
+
+    /* Custom properties */
+    --gold-glow: 0 0 20px hsl(45 60% 55% / 0.3);
+    --crimson-glow: 0 0 20px hsl(0 65% 45% / 0.3);
+    
+    --sidebar-background: 30 15% 8%;
+    --sidebar-foreground: 40 25% 80%;
+    --sidebar-primary: 45 60% 55%;
+    --sidebar-primary-foreground: 140 20% 6%;
+    --sidebar-accent: 30 15% 15%;
+    --sidebar-accent-foreground: 40 25% 80%;
+    --sidebar-border: 45 20% 20%;
+    --sidebar-ring: 45 60% 55%;
+  }
 }
 
-body, html {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
-  -webkit-overflow-scrolling: touch;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-size: 16px;
+  }
+
+  @media (max-width: 375px) {
+    html {
+      font-size: 14px;
+    }
+  }
+
+  body {
+    @apply bg-background text-foreground font-spectral;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-kelly tracking-tight;
+  }
 }
 
-body {
-  background-color: #1a1a2e;
-  color: #ffffff;
-  font-family: 'Spectral', serif;
-  line-height: 1.6;
+@layer utilities {
+  .text-gold-glow {
+    text-shadow: 0 0 10px hsl(45 60% 55% / 0.5), 0 0 30px hsl(45 60% 55% / 0.2);
+  }
+
+  .text-crimson-glow {
+    text-shadow: 0 0 10px hsl(0 65% 45% / 0.5), 0 0 30px hsl(0 65% 45% / 0.2);
+  }
+
+  .card-lubok {
+    box-shadow: 0 0 0 1px hsl(45 60% 55% / 0.1), 0 10px 30px -10px rgba(0,0,0,0.8);
+  }
+
+  .card-lubok-hover {
+    box-shadow: 0 0 0 1px hsl(45 60% 55% / 0.4), 0 15px 40px -10px rgba(0,0,0,0.9);
+  }
+
+  .grain-overlay {
+    position: relative;
+  }
+  .grain-overlay::after {
+    display: none;
+  }
+
+  .hero-image-filter {
+    filter: sepia(0.3) contrast(1.1) brightness(0.9);
+  }
+
+  .rune-border {
+    border-image: repeating-linear-gradient(
+      45deg,
+      hsl(45 60% 55% / 0.3),
+      hsl(45 60% 55% / 0.1) 10px,
+      transparent 10px,
+      transparent 20px
+    ) 1;
+  }
+
+  .blood-gauge {
+    background: linear-gradient(90deg, hsl(0 65% 45%), hsl(0 65% 35%));
+    box-shadow: 0 0 8px hsl(0 65% 45% / 0.5);
+  }
+
+  .stat-mono {
+    @apply font-mono text-sm tracking-wider;
+  }
 }
 
-/* Контейнер приложения */
-#root {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* Контейнер основного контента */
-.app-container {
-  flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  /* Безопасные области для iPhone X+ */
-  padding-top: env(safe-area-inset-top);
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-/* Скрытие скроллбара, но сохранение функциональности */
-.app-container::-webkit-scrollbar {
-  display: none;
-}
-
-.app-container {
+.scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
-
-/* Стили для полноэкранного режима */
-.fullscreen-enabled {
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
-/* Фикс для iOS Safari */
-body.ios-safari {
-  overscroll-behavior-y: none;
+@keyframes vipGlow {
+  0%, 100% { box-shadow: 0 0 4px hsl(45 80% 55% / 0.4); }
+  50% { box-shadow: 0 0 12px hsl(45 80% 55% / 0.7); }
 }
 
-/* Стили для splash-экрана */
-.splash-screen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: #000000;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 9999;
-  background-image: url('/splash/splash.png');
-  background-size: cover;
-  background-position: center;
+@keyframes relicGlow {
+  0% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+  100% { opacity: 0.4; transform: scale(1); }
 }
 
-.splash-logo {
-  width: 60%;
-  max-width: 300px;
-  opacity: 0.9;
+@keyframes relicParticle0 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.3; }
+  50% { transform: translate(-6px, -10px) scale(1.4); opacity: 1; }
 }
-
-/* Анимация появления */
-@keyframes fadeIn {
-  from { opacity: 0.8; }
-  to { opacity: 1; }
+@keyframes relicParticle1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  50% { transform: translate(8px, -12px) scale(1.3); opacity: 0.9; }
 }
-
-.splash-logo {
-  animation: fadeIn 1.5s ease-in-out infinite alternate;
-}
-
-/* Фикс для Android */
-body.android {
-  touch-action: manipulation;
-}
-
-/* Стили для кнопок */
-button {
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Фикс для ввода текста */
-input, textarea {
-  -webkit-user-select: text;
-  user-select: text;
+@keyframes relicParticle2 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.2; }
+  50% { transform: translate(-4px, -14px) scale(1.5); opacity: 1; }
 }

@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { GameProvider } from "@/context/GameContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { APP_VERSION } from "@/main";
 
 import AuthPage from "@/pages/AuthPage";
 import HubPage from "@/pages/HubPage";
@@ -28,11 +29,16 @@ import SquadsPage from "@/pages/SquadsPage";
 import MorePage from "@/pages/MorePage";
 import ShopPage from "@/pages/ShopPage";
 import AncientForgePage from "@/pages/AncientForgePage";
+import FurnacePage from "@/pages/FurnacePage";
 import WorldBossPage from "@/pages/WorldBossPage";
 import CerberusPage from "@/pages/CerberusPage";
 import WorldBossListPage from "@/pages/WorldBossListPage";
 import AncientTowerPage from "@/pages/AncientTowerPage";
 import Hero3DShowcasePage from "@/pages/Hero3DShowcasePage";
+import AchievementsPage from "@/pages/AchievementsPage";
+import DailyQuestsPage from "@/pages/DailyQuestsPage";
+import AbyssPage from "@/pages/AbyssPage";
+import RelicsPage from "@/pages/RelicsPage";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -81,20 +87,27 @@ function ProtectedRoutes() {
           <Route path="/trials/worldboss" element={<WorldBossListPage />} />
           <Route path="/trials/worldboss/hydra" element={<WorldBossPage />} />
           <Route path="/trials/worldboss/cerberus" element={<CerberusPage />} />
+          <Route path="/trials/abyss" element={<AbyssPage />} />
           <Route path="/temples" element={<TemplesPage />} />
           <Route path="/temples/:templeId" element={<TempleFloorsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/squads" element={<SquadsPage />} />
           <Route path="/more" element={<MorePage />} />
-          <Route path="/shop" element={<AdminRoute><ShopPage /></AdminRoute>} />
+          <Route path="/shop" element={<ShopPage />} />
           <Route path="/ancient-forge" element={<AncientForgePage />} />
+          <Route path="/furnace" element={<FurnacePage />} />
           <Route path="/ancient-tower" element={<AncientTowerPage />} />
           <Route path="/hero/:id" element={<HeroDetailPage />} />
           <Route path="/hero-3d-showcase" element={<Hero3DShowcasePage />} />
+          <Route path="/achievements" element={<AchievementsPage />} />
+          <Route path="/daily-quests" element={<DailyQuestsPage />} />
+          <Route path="/relics" element={<RelicsPage />} />
           <Route path="/tavern/:id" element={<TavernPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
-        
+        <div className="fixed bottom-2 right-2 z-50 text-[10px] font-mono text-muted-foreground/40 pointer-events-none select-none">
+          v{APP_VERSION}
+        </div>
       </div>
     </GameProvider>
   );

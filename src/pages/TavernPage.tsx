@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/context/GameContext';
 import { CHAMPIONS, FEED_XP, type Rarity } from '@/data/gameData';
-import { getStarUpgradeCost, getNextLevelXp, XP_PER_LEVEL } from '@/data/upgradeData';
+import { getStarUpgradeCost, getNextLevelXp, XP_PER_LEVEL, getMaxLevelForStars, MAX_LEVEL } from '@/data/upgradeData';
 import StarDisplay from '@/components/game/StarDisplay';
+import XpDisplay from '@/components/game/XpDisplay';
 import AscensionSection from '@/components/tavern/AscensionSection';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
@@ -17,10 +18,19 @@ const RARITY_STYLE_COLORS: Record<string, string> = {
   'Самоцветный': 'hsl(40 85% 55%)',
 };
 
+const STAR_NAMES: Record<number, string> = {
+  0: 'без звёзд',
+  1: '1★',
+  2: '2★',
+  3: '3★',
+  4: '4★',
+  5: '5★',
+};
+
 export default function TavernPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { player, upgradeStar, feedHero, getDuplicates } = useGame();
+  const { player, upgradeStar, feedHero } = useGame();
 
   const [feedMode, setFeedMode] = useState(false);
   const [selectedFodder, setSelectedFodder] = useState<string[]>([]);
@@ -40,17 +50,26 @@ export default function TavernPage() {
 
   const level = pc.level;
   const stars = pc.stars;
-  const allDuplicates = getDuplicates(pc.id);
-  const duplicates = allDuplicates.filter(d => d.level >= 50);
-  const lowLevelDupes = allDuplicates.filter(d => d.level < 50);
-
-  const nextLevelXp = getNextLevelXp(level);
+  const maxLevel = getMaxLevelForStars(stars);
+  const nextLevelXp = getNextLevelXp(level, stars);
   const currentLevelXp = XP_PER_LEVEL[level] ?? 0;
   const xpInLevel = (pc.xp ?? 0) - currentLevelXp;
   const xpNeeded = nextLevelXp - currentLevelXp;
-  const xpPercent = xpNeeded > 0 && xpNeeded !== Infinity ? Math.min(100, (xpInLevel / xpNeeded) * 100) : (level >= 50 ? 100 : 0);
+  const xpPercent = xpNeeded > 0 && xpNeeded !== Infinity ? Math.min(100, (xpInLevel / xpNeeded) * 100) : (level >= maxLevel ? 100 : 0);
 
-  const nextStarCost = getStarUpgradeCost(stars);
+  const costInfo = getStarUpgradeCost(stars);
+  
+  // Find eligible fodder heroes for star upgrade
+  const getFodderCandidates = () => {
+    if (!costInfo) return [];
+    return player.champions.filter(c => 
+      c.id !== pc.id && 
+      !c.locked && 
+      c.level >= MAX_LEVEL && 
+      (c.stars ?? 0) === costInfo.fodderStars
+    );
+  };
+  const fodderCandidates = getFodderCandidates();
 
   return (
     <div className="min-h-screen pb-28 relative">
@@ -83,16 +102,17 @@ export default function TavernPage() {
             transition={{ delay: 0.05 }}
             className="bg-surface/60 rounded-xl p-4 card-lubok"
           >
-            <h3 className="font-kelly text-foreground mb-3">⬆️ Развитие</h3>
+            <h3 className="font-kelly text-foreground mb-3 flex items-center gap-2"><img src="/ui/icon_levelup.png" alt="" className="w-6 h-6 object-contain" /> Развитие</h3>
 
             <div className="mb-4">
               <div className="flex justify-between items-center text-sm mb-1">
-                <span className="font-kelly text-foreground">Уровень {level}</span>
+                <span className="font-kelly text-foreground">Уровень {level} / {maxLevel}</span>
                 <span className="font-mono text-muted-foreground text-xs">
-                  {level >= 50 ? 'МАКС' : `${xpInLevel} / ${xpNeeded} XP`}
+                  {level >= maxLevel ? 'МАКС' : `${xpInLevel} / ${xpNeeded} XP`}
                 </span>
               </div>
               <Progress value={xpPercent} className="h-2" />
+              <p className="text-[10px] text-muted-foreground mt-1">Уровень повышает ЗДР, АТК и ЗАЩ (+2% за уровень)</p>
             </div>
 
             <div className="bg-background/40 rounded-lg p-3">
@@ -102,53 +122,60 @@ export default function TavernPage() {
                   <StarDisplay stars={stars} redStars={pc.redStars ?? 0} size="md" />
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-muted-foreground font-mono">
-                    Дубликатов (50 ур.): {duplicates.length}
-                    {lowLevelDupes.length > 0 && (
-                      <span className="text-accent ml-1">(+{lowLevelDupes.length} не готовы)</span>
-                    )}
-                  </div>
-                  {nextStarCost !== null && (
-                    <div className="text-xs text-muted-foreground">
-                      Нужно: <span className={duplicates.length >= nextStarCost ? 'text-primary' : 'text-accent'}>{nextStarCost}</span>
-                    </div>
+                  {costInfo && (
+                    <>
+                      <div className="text-xs text-muted-foreground font-mono">
+                        Нужно: {costInfo.copiesRequired} героев ({STAR_NAMES[costInfo.fodderStars]}, 50 ур.)
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Доступно: <span className={fodderCandidates.length >= costInfo.copiesRequired ? 'text-primary' : 'text-accent'}>{fodderCandidates.length}</span>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
 
-              {nextStarCost !== null ? (
+              {costInfo !== null ? (
                 <>
+                  {level < MAX_LEVEL && (
+                    <div className="text-xs text-accent mb-2 font-kelly">⚠ Герой должен быть 50 уровня для повышения звезды</div>
+                  )}
                   {!starUpgradeMode ? (
                     <button
                       onClick={() => { setStarUpgradeMode(true); setSelectedDuplicates([]); }}
-                      disabled={duplicates.length === 0}
+                      disabled={fodderCandidates.length === 0 || level < MAX_LEVEL}
                       className="w-full py-2 rounded-lg font-kelly text-sm transition-all bg-primary hover:bg-primary/90 text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {duplicates.length >= nextStarCost
-                        ? `★ Повысить до ${stars + 1}★ — выбрать ${nextStarCost} героев`
-                        : `Нужно ещё ${nextStarCost - duplicates.length} дубликатов`
+                      {level < MAX_LEVEL
+                        ? `Прокачайте до 50 ур.`
+                        : fodderCandidates.length >= costInfo.copiesRequired
+                          ? `★ Повысить до ${stars + 1}★ — выбрать ${costInfo.copiesRequired} героев`
+                          : `Нужно ещё ${costInfo.copiesRequired - fodderCandidates.length} героев (${STAR_NAMES[costInfo.fodderStars]}, 50 ур.)`
                       }
                     </button>
                   ) : (
                     <div>
                       <div className="text-xs text-muted-foreground mb-2">
-                        Выберите {nextStarCost} дубликатов 50 ур. для жертвы ({selectedDuplicates.length}/{nextStarCost})
+                        Выберите {costInfo.copiesRequired} героев {STAR_NAMES[costInfo.fodderStars]} 50 ур. ({selectedDuplicates.length}/{costInfo.copiesRequired})
                       </div>
                       <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto mb-2">
-                        {duplicates.map(d => {
+                        {fodderCandidates.map(d => {
                           const sel = selectedDuplicates.includes(d.id);
                           return (
                             <button
                               key={d.id}
                               onClick={() => setSelectedDuplicates(prev =>
-                                sel ? prev.filter(x => x !== d.id) : prev.length < nextStarCost ? [...prev, d.id] : prev
+                                sel ? prev.filter(x => x !== d.id) : prev.length < costInfo.copiesRequired ? [...prev, d.id] : prev
                               )}
                               className={`relative rounded-lg overflow-hidden border-2 transition-all ${
                                 sel ? 'border-primary shadow-[0_0_10px_hsl(var(--primary)/0.3)]' : 'border-transparent hover:border-muted'
                               }`}
                             >
                               <img src={d.champion.imageUrl} alt={d.champion.name} className="w-full h-14 object-cover" />
-                              <div className="text-[10px] font-mono text-center bg-background/80 p-0.5">Ур.{d.level}</div>
+                              <div className="p-0.5 bg-background/80 text-center">
+                                <div className="text-[10px] font-kelly truncate">{d.champion.name}</div>
+                                <div className="text-[9px] font-mono text-muted-foreground">Ур.{d.level} · {STAR_NAMES[d.stars ?? 0]}</div>
+                              </div>
                               {sel && <div className="absolute top-0.5 right-0.5 w-4 h-4 bg-primary rounded-full flex items-center justify-center text-[10px] text-primary-foreground">✓</div>}
                             </button>
                           );
@@ -162,12 +189,12 @@ export default function TavernPage() {
                         <button
                           onClick={() => {
                             if (upgradeStar(pc.id, selectedDuplicates)) {
-                              toast.success(`★ Повышено до ${stars + 1}★!`);
+                              toast.success(`★ Повышено до ${stars + 1}★! Уровень сброшен.`);
                               setStarUpgradeMode(false);
                               setSelectedDuplicates([]);
                             }
                           }}
-                          disabled={selectedDuplicates.length < nextStarCost}
+                          disabled={selectedDuplicates.length < costInfo.copiesRequired}
                           className="flex-1 py-2 rounded-lg font-kelly text-sm bg-primary hover:bg-primary/90 text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed"
                         >★ Повысить</button>
                       </div>
@@ -175,7 +202,7 @@ export default function TavernPage() {
                   )}
                 </>
               ) : (
-                <div className="text-center text-sm font-kelly text-primary">★ Максимальные звёзды ★</div>
+                <div className="text-center text-sm font-kelly text-primary">★ Максимальные звёзды ★ (макс. уровень: {maxLevel})</div>
               )}
             </div>
           </motion.div>
@@ -188,7 +215,7 @@ export default function TavernPage() {
             className="bg-surface/60 rounded-xl p-4 card-lubok"
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-kelly text-foreground">🍖 Поглощение героев</h3>
+              <h3 className="font-kelly text-foreground flex items-center gap-2"><img src="/ui/icon_absorb.png" alt="" className="w-6 h-6 object-contain" /> Поглощение героев</h3>
               <button
                 onClick={() => { setFeedMode(!feedMode); setSelectedFodder([]); }}
                 className={`text-sm font-kelly px-3 py-1 rounded-lg transition-all ${
@@ -207,7 +234,7 @@ export default function TavernPage() {
               {(Object.entries(FEED_XP) as [Rarity, number][]).map(([rarity, xp]) => (
                 <div key={rarity} className="bg-background/40 rounded-lg p-1.5">
                   <div className="truncate" style={{ color: RARITY_STYLE_COLORS[rarity] }}>{rarity}</div>
-                  <div className="font-mono text-primary">{xp}</div>
+                  <div className="font-mono text-primary"><XpDisplay xp={xp} /></div>
                 </div>
               ))}
             </div>
@@ -283,7 +310,7 @@ export default function TavernPage() {
                                 <div className="p-1 bg-background/80 text-center">
                                   <div className="text-[10px] font-kelly truncate" style={{ color: RARITY_STYLE_COLORS[f.champion.rarity] }}>{f.champion.name}</div>
                                   <div className="text-[9px] text-muted-foreground">{f.champion.rarity}</div>
-                                  <div className="text-[10px] font-mono text-primary">+{FEED_XP[f.champion.rarity] ?? 50} XP</div>
+                                  <div className="text-[10px] font-mono text-primary"><XpDisplay xp={FEED_XP[f.champion.rarity] ?? 50} prefix="+" suffix=" XP" /></div>
                                 </div>
                                 {selected && (
                                   <div className="absolute top-0.5 right-0.5 w-4 h-4 bg-accent rounded-full flex items-center justify-center text-[10px] text-accent-foreground">✓</div>
@@ -302,7 +329,7 @@ export default function TavernPage() {
                             }}
                             className="w-full py-2 rounded-lg font-kelly text-sm bg-accent hover:bg-accent/90 text-accent-foreground transition-all"
                           >
-                            🍖 Поглотить {selectedFodder.length} героев (+{totalXp} XP)
+                            🍖 Поглотить {selectedFodder.length} героев (<XpDisplay xp={totalXp} prefix="+" suffix=" XP" />)
                           </button>
                         )}
                       </>

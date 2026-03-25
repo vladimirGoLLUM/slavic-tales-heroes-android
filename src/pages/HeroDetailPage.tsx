@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Lock, Unlock } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/context/GameContext';
-import { ELEMENT_ICONS, getStatLabel, CHAMPIONS, type Skill } from '@/data/gameData';
+import { ELEMENT_ICONS, FACTION_ICONS, getStatLabel, CHAMPIONS, type Skill } from '@/data/gameData';
 import { EFFECT_NAMES } from '@/types/game';
 import EffectIcon from '@/components/game/EffectIcon';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import MythicOverlay from '@/components/game/MythicOverlay';
+import { RELICS, MAX_RELICS_PER_HERO, getRelicById } from '@/data/relics';
 
 const RARITY_STYLE_COLORS: Record<string, string> = {
   'Обиходный': 'hsl(40 10% 50%)',
@@ -23,21 +25,25 @@ import {
   calculateArtifactStats, getActiveSetBonuses,
   formatStatValue, canEquipSlot, ACCESSORY_STAR_REQUIREMENTS,
   getUnlockedSubstats, getLockedSubstats, getArtifactUpgradeCost, MAX_ARTIFACT_LEVEL,
+  getFurnaceBoostedPrimaryValue, FURNACE_BOSS_COLORS,
 } from '@/data/artifacts';
 import StarDisplay from '@/components/game/StarDisplay';
 import SlotIcon from '@/components/game/SlotIcon';
 import ArtifactIcon from '@/components/game/ArtifactIcon';
+import FurnaceFlames from '@/components/game/FurnaceFlames';
 import SetIcon from '@/components/game/SetIcon';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import TutorialGlow from '@/components/game/TutorialGlow';
 
 export default function HeroDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { player, addToSquad, removeFromSquad, getHeroArtifacts, getUnequippedArtifacts, equipArtifact, unequipArtifact, upgradeArtifact, getEffectiveStats, toggleHeroLock } = useGame();
+  const { player, addToSquad, removeFromSquad, getHeroArtifacts, getUnequippedArtifacts, equipArtifact, unequipArtifact, upgradeArtifact, getEffectiveStats, toggleHeroLock, equipRelic, unequipRelic, advanceTutorial } = useGame();
 
   const [slotPicker, setSlotPicker] = useState<ArtifactSlot | null>(null);
   const [viewingArtifact, setViewingArtifact] = useState<Artifact | null>(null);
+  const step = player.tutorialStep ?? 99;
 
   const isReadOnly = id?.startsWith('champion-');
   const championId = isReadOnly ? id.replace('champion-', '') : null;
@@ -46,6 +52,9 @@ export default function HeroDetailPage() {
   const champion = isReadOnly
     ? CHAMPIONS.find(c => c.id === championId)
     : pc?.champion;
+
+  // Auto-open slot picker for tutorial steps (must be before early return)
+  // No auto-open: tutorial step 35 highlights the weapon/helmet slot for manual click
 
   if (!champion) {
     return (
@@ -82,6 +91,16 @@ export default function HeroDetailPage() {
       toast.error(`Требуется ${req}★ для экипировки ${SLOT_LABELS[slot]}`);
       return;
     }
+    if (step === 19 && slot === 'weapon') advanceTutorial(19);
+    if (step === 33 && slot === 'helmet') advanceTutorial(33);
+    if (step === 35 && (slot === 'weapon' || slot === 'helmet')) {
+      advanceTutorial(35);
+      // Open artifact view and immediately show upgrade button (step 36)
+      if (equipped) {
+        setViewingArtifact(equipped);
+        return;
+      }
+    }
     if (equipped) {
       setViewingArtifact(equipped);
     } else {
@@ -101,22 +120,36 @@ export default function HeroDetailPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent pointer-events-none" />
           
           <div className="absolute top-3 left-3 right-3 flex justify-between z-20">
-            <button onClick={() => navigate(-1)} className="bg-background/70 backdrop-blur-sm px-3 py-1.5 rounded-lg font-kelly text-foreground hover:bg-background/90 transition-colors text-sm min-h-[44px]">
+            <button onClick={() => {
+              if (step === 21) advanceTutorial(21);
+              if (step === 37) advanceTutorial(37);
+              navigate(-1);
+            }} className={`relative px-3 py-1.5 rounded-lg font-kelly text-foreground hover:bg-background/30 transition-colors text-sm min-h-[44px] drop-shadow-lg ${
+              (step === 21 || step === 37) ? 'text-primary' : ''
+            }`}>
+              {(step === 21 || step === 37) && (
+                <TutorialGlow rounded="rounded-lg" label={step === 21 ? 'Меч экипирован! Вернись назад.' : 'Снаряжение прокачано! Вернись назад.'} wide below />
+              )}
               ← Назад
             </button>
-            <button onClick={() => navigate(`/compare?hero=${champion.id}`)} className="bg-background/70 backdrop-blur-sm px-3 py-1.5 rounded-lg font-kelly text-primary hover:bg-background/90 transition-colors text-sm min-h-[44px]">
-              <img src="/ui/icon_compare.png" alt="" className="w-4 h-4 inline-block" /> Сравнить
-            </button>
+            {FACTION_ICONS[champion.faction] && (
+              <div className="flex items-center gap-1.5">
+                <img src={FACTION_ICONS[champion.faction]} alt={champion.faction} className="w-20 h-20 object-contain drop-shadow-lg" />
+              </div>
+            )}
           </div>
 
           <div className="absolute bottom-3 left-3 z-20 pointer-events-none">
-            <h1 className="text-2xl sm:text-3xl font-kelly text-foreground">{champion.name}</h1>
+            <h1 className="text-2xl sm:text-3xl font-kelly" style={{ color: RARITY_STYLE_COLORS[champion.rarity] }}>{champion.name}</h1>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <span className="text-xs sm:text-sm">{ELEMENT_ICONS[champion.element]} {champion.element}</span>
-              <span className="text-xs sm:text-sm text-muted-foreground">{champion.faction}</span>
-              <span className="text-xs sm:text-sm text-primary">{champion.rarity}</span>
+              <span className="text-xs sm:text-sm text-muted-foreground flex items-center gap-1">
+                {FACTION_ICONS[champion.faction] && <img src={FACTION_ICONS[champion.faction]} alt="" className="w-4 h-4 sm:w-5 sm:h-5 object-contain" />}
+                {champion.faction}
+              </span>
+              <span className="text-xs sm:text-sm font-kelly" style={{ color: RARITY_STYLE_COLORS[champion.rarity] }}>{champion.rarity}</span>
             </div>
-            <StarDisplay stars={stars} size="md" className="mt-1" />
+            <StarDisplay stars={stars} redStars={pc?.redStars ?? 0} size="md" className="mt-1" />
           </div>
 
           <div className="absolute bottom-3 right-3 bg-background/70 backdrop-blur-sm px-2 py-1 rounded-lg z-20 pointer-events-none">
@@ -146,6 +179,7 @@ export default function HeroDetailPage() {
                 </div>
               ))}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-2">Уровень повышает ЗДР, АТК и ЗАЩ (+2% за уровень)</p>
           </motion.div>
 
           {/* Artifact slots — 9 slots with star-gated accessories */}
@@ -157,6 +191,10 @@ export default function HeroDetailPage() {
                   const equipped = getEquippedInSlot(slot);
                   const isLocked = !canEquipSlot(slot, stars);
                   const starReq = ACCESSORY_STAR_REQUIREMENTS[slot];
+                  const hasWeapon = equippedArtifacts.some(a => a.slot === 'weapon');
+                  const isWeaponHighlighted = (step === 19 || step === 35) && slot === 'weapon';
+                  const isHelmetHighlighted = (step === 33 || (step === 35 && !hasWeapon)) && slot === 'helmet';
+                  const isSlotHighlighted = isWeaponHighlighted || isHelmetHighlighted;
 
                   return (
                     <div
@@ -164,13 +202,17 @@ export default function HeroDetailPage() {
                       onClick={() => handleSlotClick(slot)}
                       className={`relative rounded-xl p-3 card-lubok cursor-pointer transition-all hover:brightness-110 ${
                         slotPicker === slot ? 'ring-2 ring-primary' : ''
-                      } ${isLocked ? 'opacity-50' : ''}`}
+                      } ${isLocked ? 'opacity-50' : ''} ${isSlotHighlighted ? 'ring-2 ring-primary' : ''}`}
                       style={equipped ? {
                         background: ARTIFACT_RARITY_BG[equipped.rarity],
                         border: `${ARTIFACT_RARITY_BORDER_WIDTH[equipped.rarity]}px solid ${ARTIFACT_RARITY_COLORS[equipped.rarity]}`,
                         boxShadow: ARTIFACT_RARITY_GLOW[equipped.rarity],
                       } : { background: 'hsl(var(--surface) / 0.4)', border: '1px solid hsl(var(--border) / 0.2)' }}
                     >
+                      {/* Tutorial pulse on slot */}
+                      {isSlotHighlighted && (
+                        <TutorialGlow rounded="rounded-xl" label={step === 19 ? 'Нажми на слот Оружие чтобы надеть меч. Оружие повышает Атаку!' : step === 33 ? 'Нажми на слот Шлем. Шлем увеличивает Здоровье героя!' : 'Нажми на Меч чтобы открыть улучшение. Каждый уровень усиливает характеристики!'} wide />
+                      )}
                       {/* Locked overlay */}
                       {isLocked && (
                         <div className="absolute inset-0 bg-background/60 rounded-xl flex items-center justify-center z-10">
@@ -195,13 +237,21 @@ export default function HeroDetailPage() {
                             {Array.from({ length: 5 }).map((_, i) => (
                               <span key={i} className="text-[7px]" style={{ color: i < equipped.stars ? ARTIFACT_RARITY_COLORS[equipped.rarity] : 'hsl(var(--muted-foreground) / 0.25)' }}>★</span>
                             ))}
-                            {equipped.level > 0 && <span className="text-[9px] text-muted-foreground ml-0.5">+{equipped.level}</span>}
+                             {equipped.level > 0 && <span className="text-[9px] text-muted-foreground ml-0.5">+{equipped.level}</span>}
                           </div>
+                          {(equipped.furnaceLevel ?? 0) > 0 && (
+                            <FurnaceFlames furnaceLevel={equipped.furnaceLevel ?? 0} furnaceBossId={equipped.furnaceBossId} size="xs" />
+                          )}
                           <div className="text-[9px] font-kelly mt-0.5" style={{ color: ARTIFACT_RARITY_COLORS[equipped.rarity] }}>
                             {equipped.rarity}
                           </div>
                           <div className="text-xs font-mono text-primary font-bold">
-                            +{formatStatValue(equipped.primaryValue, equipped.primaryType)} {STAT_LABELS[equipped.primaryStat]}
+                            +{formatStatValue(getFurnaceBoostedPrimaryValue(equipped), equipped.primaryType)} {STAT_LABELS[equipped.primaryStat]}
+                            {(equipped.furnaceLevel ?? 0) > 0 && (
+                              <span className="text-[8px] ml-0.5" style={{ color: FURNACE_BOSS_COLORS[equipped.furnaceBossId ?? ''] ?? 'hsl(30, 90%, 55%)' }}>
+                                <img src="/ui/icon_furnace_flame.png" alt="" className="w-3 h-3 inline" />+{Math.round((getFurnaceBoostedPrimaryValue(equipped) - equipped.primaryValue) / (equipped.primaryType === 'percent' ? 1 : 1))}
+                              </span>
+                            )}
                           </div>
                           {(() => {
                             const unlocked = getUnlockedSubstats(equipped);
@@ -262,7 +312,7 @@ export default function HeroDetailPage() {
                                   {art.level > 0 && <span className="text-[9px] text-muted-foreground ml-0.5">+{art.level}</span>}
                                 </div>
                                 <div className="text-xs font-mono text-primary font-bold mt-0.5">
-                                  +{formatStatValue(art.primaryValue, art.primaryType)} {STAT_LABELS[art.primaryStat]}
+                                  +{formatStatValue(getFurnaceBoostedPrimaryValue(art), art.primaryType)} {STAT_LABELS[art.primaryStat]}
                                 </div>
                                 {unlocked.length > 0 && (
                                   <div className="mt-0.5">
@@ -302,6 +352,60 @@ export default function HeroDetailPage() {
             </motion.div>
           )}
 
+          {/* Relics Section */}
+          {pc && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }} className="mb-6">
+              <h3 className="font-kelly text-foreground mb-3">🏺 Реликвии <span className="text-muted-foreground text-xs font-mono">({(pc.equippedRelics ?? []).length}/{MAX_RELICS_PER_HERO})</span></h3>
+              <div className="grid grid-cols-3 gap-3">
+                {Array.from({ length: MAX_RELICS_PER_HERO }).map((_, idx) => {
+                  const relicId = (pc.equippedRelics ?? [])[idx];
+                  const relic = relicId ? getRelicById(relicId) : null;
+                  const availableRelics = (player.relics ?? [])
+                    .filter(rid => !(pc.equippedRelics ?? []).includes(rid))
+                    .filter(rid => !player.champions.some(c => c.id !== pc.id && (c.equippedRelics ?? []).includes(rid)))
+                    .map(rid => getRelicById(rid))
+                    .filter(Boolean);
+                  
+                  return (
+                    <div key={idx} className="relative">
+                      {relic ? (
+                        <div className="rounded-xl p-2.5 card-lubok border border-purple-500/30 bg-purple-950/20 text-center">
+                          <img src={relic.icon} alt={relic.name} className="w-12 h-12 mx-auto object-contain" />
+                          <div className="text-[10px] font-kelly text-foreground mt-1 truncate">{relic.name}</div>
+                          <div className="text-[8px] text-purple-300 mt-0.5">{relic.description.split('. ').pop()}</div>
+                          <button
+                            onClick={() => unequipRelic(pc.id, relicId!)}
+                            className="mt-1 text-[10px] text-accent hover:text-accent/80 font-kelly"
+                          >Снять</button>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl p-2.5 card-lubok border border-border/20 bg-surface/20 text-center min-h-[100px] flex flex-col items-center justify-center">
+                          {availableRelics.length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground font-kelly">Пусто</div>
+                              {availableRelics.map(r => r && (
+                                <button
+                                  key={r.id}
+                                  onClick={() => equipRelic(pc.id, r.id)}
+                                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-purple-900/20 border border-purple-500/20 hover:bg-purple-900/40 transition-all w-full"
+                                >
+                                  <img src={r.icon} alt={r.name} className="w-6 h-6 object-contain" />
+                                  <span className="text-[9px] font-kelly text-foreground truncate">{r.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-muted-foreground font-kelly">Пусто</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+
           {/* Skills */}
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mb-6">
             <h3 className="font-kelly text-foreground mb-3">Навыки</h3>
@@ -323,8 +427,55 @@ export default function HeroDetailPage() {
                         <span className={`text-xs font-kelly ${SKILL_TYPE_COLORS[skill.type]}`}>{SKILL_TYPE_LABELS[skill.type]}</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        {skill.power > 0 && <span>⚔️ {(skill.power * 100).toFixed(0)}%</span>}
-                        <span>{skill.cooldown === 0 ? '♾️ Авто' : `⏱ ${skill.cooldown} ход.`}</span>
+                        {skill.power > 0 && (() => {
+                          const redStars = pc?.redStars ?? 0;
+                          const skill1Bonus = i === 0 ? (redStars >= 2 ? 0.20 : 0) + (redStars >= 5 ? 0.25 : 0) : 0;
+                          const totalPower = skill.power + skill1Bonus;
+                          return skill1Bonus > 0 ? (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-help">⚔️ <span className="line-through opacity-50">{(skill.power * 100).toFixed(0)}%</span> <span style={{ color: '#ef4444' }}>{(totalPower * 100).toFixed(0)}% 🔥</span></span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs max-w-[200px]">
+                                  <p className="font-kelly">🔥 Бонус Вознесения</p>
+                                  {redStars >= 2 && <p>★2: +20% урон навыка</p>}
+                                  {redStars >= 5 && <p>★5: +25% урон навыка</p>}
+                                  <p className="text-muted-foreground mt-0.5">Базовый: {(skill.power * 100).toFixed(0)}% → {(totalPower * 100).toFixed(0)}%</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <span>⚔️ {(skill.power * 100).toFixed(0)}%</span>
+                          );
+                        })()}
+                        {(() => {
+                          const redStars = pc?.redStars ?? 0;
+                          const baseCd = skill.cooldown;
+                          let reducedCd = baseCd;
+                          if (i === 1 && redStars >= 3) reducedCd = Math.max(1, reducedCd - 1);
+                          if (i === 1 && redStars >= 4) reducedCd = Math.max(1, reducedCd - 1);
+                          const hasCdReduction = reducedCd < baseCd;
+                          return baseCd === 0 ? (
+                            <span>♾️ Авто</span>
+                          ) : hasCdReduction ? (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-help">⏱ <span className="line-through opacity-50">{baseCd}</span> <span style={{ color: '#ef4444' }}>{reducedCd} 🔥</span> ход.</span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs max-w-[200px]">
+                                  <p className="font-kelly">🔥 Бонус Вознесения</p>
+                                  {redStars >= 3 && <p>★3: откат -1 ход</p>}
+                                  {redStars >= 4 && <p>★4: откат -1 ход</p>}
+                                  <p className="text-muted-foreground mt-0.5">Базовый: {baseCd} → {reducedCd} ход.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <span>⏱ {baseCd} ход.</span>
+                          );
+                        })()}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground font-spectral mb-2">{skill.description}</p>
@@ -390,7 +541,7 @@ export default function HeroDetailPage() {
       <Dialog open={!!viewingArtifact} onOpenChange={(open) => { if (!open) setViewingArtifact(null); }}>
         <DialogContent className="max-w-sm bg-background border-border">
           {viewingArtifact && (() => {
-            const art = viewingArtifact;
+            const art = player.artifacts.find(a => a.id === viewingArtifact.id) ?? viewingArtifact;
             const unlocked = getUnlockedSubstats(art);
             const locked = getLockedSubstats(art);
             return (
@@ -420,7 +571,12 @@ export default function HeroDetailPage() {
                   <div className="bg-background/40 rounded-md px-2 py-1.5 mb-2">
                     <div className="text-[10px] text-muted-foreground mb-0.5">Основная</div>
                     <div className="text-sm font-mono text-primary font-semibold">
-                      +{formatStatValue(art.primaryValue, art.primaryType)} {STAT_LABELS[art.primaryStat]}
+                      +{formatStatValue(getFurnaceBoostedPrimaryValue(art), art.primaryType)} {STAT_LABELS[art.primaryStat]}
+                      {(art.furnaceLevel ?? 0) > 0 && (
+                        <span className="text-[10px] ml-1" style={{ color: FURNACE_BOSS_COLORS[art.furnaceBossId ?? ''] ?? 'hsl(30, 90%, 55%)' }}>
+                          <img src="/ui/icon_furnace_flame.png" alt="" className="w-3.5 h-3.5 inline" />+{Math.round(getFurnaceBoostedPrimaryValue(art) - art.primaryValue)}
+                        </span>
+                      )}
                     </div>
                   </div>
                   {(unlocked.length > 0 || locked.length > 0) && (
@@ -467,8 +623,13 @@ export default function HeroDetailPage() {
                         <button
                           onClick={() => upgradeArtifact(freshArt.id)}
                           disabled={!canAfford}
-                          className="bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-kelly py-1.5 px-3 rounded-lg transition-all text-xs"
-                        >⬆ Улучшить</button>
+                          className={`relative bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-kelly py-1.5 px-3 rounded-lg transition-all text-xs`}
+                        >
+                          {step === 36 && (
+                            <TutorialGlow rounded="rounded-lg" label="Нажимай «Улучшить» пока Меч не достигнет +5. Каждый уровень стоит руны." wide />
+                          )}
+                          ⬆ Улучшить{step === 36 ? ` +${freshArt.level + 1}` : ''}
+                        </button>
                       </div>
                     </div>
                   );

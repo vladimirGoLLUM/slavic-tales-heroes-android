@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '@/context/GameContext';
 import { TOWER_ELEMENTS, TOWER_STATS, TOWER_UPGRADE_TABLE, MAX_TOWER_LEVEL, TOWER_COIN_TIERS, TOWER_COIN_NAMES, getAvailableCoins, type TowerStat, type TowerCoinTier } from '@/data/towerData';
@@ -82,7 +83,7 @@ export default function AncientTowerPage() {
         </div>
 
         {/* Element upgrade grid */}
-        <div className="overflow-x-auto">
+        <DragScroll>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border/30">
@@ -127,7 +128,7 @@ export default function AncientTowerPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </DragScroll>
 
         {/* Side panel */}
         <Sheet open={!!selectedCell} onOpenChange={(open) => !open && setSelectedCell(null)}>

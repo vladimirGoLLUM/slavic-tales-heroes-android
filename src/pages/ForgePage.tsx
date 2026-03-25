@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/context/GameContext';
@@ -16,14 +16,16 @@ import SetIcon from '@/components/game/SetIcon';
 import StarDisplay from '@/components/game/StarDisplay';
 import { toast } from 'sonner';
 import { ChevronLeft } from 'lucide-react';
+import TutorialGlow from '@/components/game/TutorialGlow';
 
 type ForgeStep = 'slot' | 'rarity' | 'craft';
 
 const RARITY_ORDER: ArtifactRarity[] = ['Обиходный', 'Заветный', 'Сказанный', 'Калиновый', 'Самоцветный'];
 
 export default function ForgePage() {
-  const { player, upgradeArtifactStar } = useGame();
+  const { player, upgradeArtifactStar, advanceTutorial } = useGame();
   const navigate = useNavigate();
+  const tutStep = player.tutorialStep ?? 99;
   const [step, setStep] = useState<ForgeStep>('slot');
   const [selectedSlot, setSelectedSlot] = useState<ArtifactSlot | null>(null);
   const [selectedRarity, setSelectedRarity] = useState<ArtifactRarity | null>(null);
@@ -84,18 +86,22 @@ export default function ForgePage() {
   const canUpgrade = cost !== null && selectedFodder.size >= cost;
 
   const handleSelectSlot = (slot: ArtifactSlot) => {
+    if (tutStep === 43 && slot !== 'weapon') return;
     setSelectedSlot(slot);
     setSelectedRarity(null);
     setSelectedArtifact(null);
     setSelectedFodder(new Set());
     setStep('rarity');
+    if (tutStep === 43) advanceTutorial(43);
   };
 
   const handleSelectRarity = (rarity: ArtifactRarity) => {
+    if (tutStep === 44 && rarity !== 'Обиходный') return;
     setSelectedRarity(rarity);
     setSelectedArtifact(null);
     setSelectedFodder(new Set());
     setStep('craft');
+    if (tutStep === 44) advanceTutorial(44);
   };
 
   const handleBack = () => {
@@ -127,10 +133,20 @@ export default function ForgePage() {
       setForgingStars(newStars);
       setForging(true);
       setSelectedFodder(new Set());
+      // tutStep 46 → 47 is handled in GameContext
     } else {
       toast.error('Не удалось улучшить звезду');
     }
   };
+
+  // Auto-select artifact in tutorial step 45
+  useEffect(() => {
+    if (tutStep === 45 && step === 'craft' && filteredArtifacts.length > 0 && !selectedArtifact) {
+      const target = filteredArtifacts.find(a => a.id === 'tutorial-forge-weapon-1') ?? filteredArtifacts[0];
+      setSelectedArtifact(target);
+      advanceTutorial(45);
+    }
+  }, [tutStep, step, filteredArtifacts, selectedArtifact, advanceTutorial]);
 
   const handleForgeComplete = useCallback(() => {
     setForging(false);
@@ -150,18 +166,25 @@ export default function ForgePage() {
 
       <div className="relative z-10 px-3 sm:px-4 pt-6 sm:pt-8 max-w-5xl mx-auto">
         <div className="flex items-center gap-3 mb-1">
-          <button
-            onClick={() => navigate('/')}
-            className="text-muted-foreground hover:text-foreground text-xl min-w-[44px] min-h-[44px] flex items-center justify-center"
-          >
-            ←
-          </button>
+          <div className={`relative ${tutStep === 47 ? '' : ''}`}>
+            <button
+              onClick={() => {
+                if (tutStep === 47) advanceTutorial(47);
+                navigate('/ancient-forge');
+              }}
+              className="text-muted-foreground hover:text-foreground text-xl min-w-[44px] min-h-[44px] flex items-center justify-center"
+            >
+              ←
+            </button>
+            {tutStep === 47 && <TutorialGlow wide below label="Отлично! Теперь ты знаешь как ковать. Вернись назад." rounded="rounded-lg" />}
+          </div>
+          <img src="/ui/icon_forge.png" alt="" className="w-8 h-8 object-contain" />
           <motion.h1
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-2xl sm:text-3xl font-kelly text-primary text-gold-glow"
           >
-            🔨 Кузница
+            Кузница
           </motion.h1>
         </div>
         <p className="text-center text-muted-foreground text-sm mb-6">
@@ -199,19 +222,24 @@ export default function ForgePage() {
               exit={{ opacity: 0, x: 20 }}
               className="grid grid-cols-3 sm:grid-cols-3 gap-3"
             >
-              {ALL_SLOTS.map(slot => (
+              {ALL_SLOTS.map(slot => {
+                const isTutSlot = tutStep === 43 && slot === 'weapon';
+                const isTutLocked = tutStep === 43 && slot !== 'weapon';
+                return (
                 <motion.div
                   key={slot}
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.96 }}
-                  onClick={() => handleSelectSlot(slot)}
-                  className="card-lubok rounded-xl p-4 cursor-pointer flex flex-col items-center gap-2 border border-border/40 hover:border-primary/50 transition-all min-h-[100px]"
+                  onClick={() => !isTutLocked && handleSelectSlot(slot)}
+                  className={`relative card-lubok rounded-xl p-4 cursor-pointer flex flex-col items-center gap-2 border border-border/40 hover:border-primary/50 transition-all min-h-[100px] ${isTutLocked ? 'opacity-30 cursor-not-allowed' : ''}`}
                 >
+                  {isTutSlot && <TutorialGlow wide label="Выбери тип снаряжения. Улучшать можно только предметы одного типа." />}
                   <SlotIcon slot={slot} size={40} />
                   <span className="font-kelly text-foreground text-xs text-center">{SLOT_LABELS[slot]}</span>
                   <span className="text-[10px] text-muted-foreground">{slotCounts[slot]} шт.</span>
                 </motion.div>
-              ))}
+                );
+              })}
             </motion.div>
           )}
 
@@ -225,21 +253,25 @@ export default function ForgePage() {
             >
               {RARITY_ORDER.map(rarity => {
                 const count = rarityCounts[rarity] ?? 0;
+                const isTutRarity = tutStep === 44 && rarity === 'Обиходный';
+                const isTutLocked = tutStep === 44 && rarity !== 'Обиходный';
                 return (
                   <motion.div
                     key={rarity}
                     whileHover={{ scale: 1.04 }}
                     whileTap={{ scale: 0.96 }}
-                    onClick={() => count > 0 && handleSelectRarity(rarity)}
-                    className={`rounded-xl p-4 flex flex-col items-center gap-2 transition-all min-h-[80px] ${
+                    onClick={() => count > 0 && !isTutLocked && handleSelectRarity(rarity)}
+                    className={`relative rounded-xl p-4 flex flex-col items-center gap-2 transition-all min-h-[80px] ${
+                      isTutLocked ? 'opacity-30 cursor-not-allowed' :
                       count > 0 ? 'cursor-pointer hover:scale-[1.02]' : 'opacity-40 cursor-not-allowed'
                     }`}
                     style={{
                       background: ARTIFACT_RARITY_BG[rarity],
                       border: `${ARTIFACT_RARITY_BORDER_WIDTH[rarity]}px solid ${ARTIFACT_RARITY_COLORS[rarity]}`,
-                      boxShadow: count > 0 ? ARTIFACT_RARITY_GLOW[rarity] : 'none',
+                      boxShadow: count > 0 && !isTutLocked ? ARTIFACT_RARITY_GLOW[rarity] : 'none',
                     }}
                   >
+                    {isTutRarity && <TutorialGlow wide label="Предметы одной редкости используются как корм друг для друга." />}
                     <span className="font-kelly text-foreground text-sm">{rarity}</span>
                     <span className="text-xs text-muted-foreground">{count} шт.</span>
                   </motion.div>
@@ -287,6 +319,7 @@ export default function ForgePage() {
                     onToggleFodder={toggleFodder}
                     canUpgrade={canUpgrade}
                     onUpgrade={handleUpgrade}
+                    tutStep={tutStep}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -360,7 +393,7 @@ function ForgeArtifactCard({ artifact, isSelected, isEquipped, onClick }: {
 
 /* ─── Upgrade Panel ─── */
 
-function ForgeUpgradePanel({ artifact, cost, fodder, selectedFodder, onToggleFodder, canUpgrade, onUpgrade }: {
+function ForgeUpgradePanel({ artifact, cost, fodder, selectedFodder, onToggleFodder, canUpgrade, onUpgrade, tutStep = 99 }: {
   artifact: Artifact;
   cost: number | null;
   fodder: Artifact[];
@@ -368,12 +401,18 @@ function ForgeUpgradePanel({ artifact, cost, fodder, selectedFodder, onToggleFod
   onToggleFodder: (id: string) => void;
   canUpgrade: boolean;
   onUpgrade: () => void;
+  tutStep?: number;
 }) {
   const nextStarMult = ARTIFACT_STAR_MULTIPLIERS[artifact.stars + 1];
   const currentMult = ARTIFACT_STAR_MULTIPLIERS[artifact.stars];
 
   return (
     <div className="space-y-3">
+      {tutStep === 45 && (
+        <div className="relative">
+          <TutorialGlow wide label="Это твой меч. Повысим его с 1★ до 2★ — сила вырастет на 40%!" rounded="rounded-xl" />
+        </div>
+      )}
       <div
         className="rounded-xl p-4 card-lubok"
         style={{
@@ -403,7 +442,8 @@ function ForgeUpgradePanel({ artifact, cost, fodder, selectedFodder, onToggleFod
       </div>
 
       {cost !== null ? (
-        <div className="bg-surface/60 rounded-xl p-3 border border-border/30">
+        <div className="relative bg-surface/60 rounded-xl p-3 border border-border/30">
+          {tutStep === 46 && !canUpgrade && <TutorialGlow wide label="Корм — предмет с тем же слотом, редкостью и ★. Выбери его и нажми Улучшить!" />}
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-kelly text-muted-foreground">
               Нужно {artifact.rarity} {SLOT_LABELS[artifact.slot].toLowerCase()} {artifact.stars}★:
@@ -458,14 +498,17 @@ function ForgeUpgradePanel({ artifact, cost, fodder, selectedFodder, onToggleFod
       )}
 
       {cost !== null && (
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          onClick={onUpgrade}
-          disabled={!canUpgrade}
-          className="w-full bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-kelly py-3 rounded-xl transition-all min-h-[48px] text-base"
-        >
-          {canUpgrade ? `🔨 Ковать ${artifact.stars + 1}★` : `Выбери ${cost - selectedFodder.size} ещё`}
-        </motion.button>
+        <div className="relative">
+          {tutStep === 46 && canUpgrade && <TutorialGlow wide label="Корм выбран! Нажми Улучшить!" />}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={onUpgrade}
+            disabled={!canUpgrade}
+            className="w-full bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-kelly py-3 rounded-xl transition-all min-h-[48px] text-base"
+          >
+            {canUpgrade ? `🔨 Ковать ${artifact.stars + 1}★` : `Выбери ${cost - selectedFodder.size} ещё`}
+          </motion.button>
+        </div>
       )}
     </div>
   );

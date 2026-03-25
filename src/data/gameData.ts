@@ -1,5 +1,7 @@
 import { generateArtifact } from './artifacts';
 import { createInitialTowerUpgrades } from './towerData';
+import { type AbyssProgress, createInitialAbyssProgress } from './abyssData';
+import { createInitialVesselInventory, createInitialVesselPity } from './vessels';
 
 import golovnyaImg from '@/assets/heroes/golovnya.png';
 import ugolnikImg from '@/assets/heroes/ugolnik.png';
@@ -85,6 +87,7 @@ export interface PlayerChampion {
   xp: number;
   currentHp: number;
   equippedArtifacts: string[];
+  equippedRelics: string[];
   locked?: boolean;
 }
 
@@ -157,6 +160,33 @@ export interface PlayerState {
   cerberusAttacksLeft: number;
   lastCerberusAttackDate: string;
   cerberusRewardsClaimed: boolean;
+  // Abyss (Бездонная Бездна)
+  abyssProgress: AbyssProgress;
+  // Relics inventory (relic IDs owned)
+  relics: string[];
+  // Vessel inventory (Soul Vessels)
+  vessels: import('./vessels').VesselInventory;
+  // Vessel pity counters
+  vesselPity: import('./vessels').VesselPityCounters;
+  // Account character XP (total accumulated)
+  accountXp: number;
+  // Tutorial step: 0=vessels, 1=squad, 2=first campaign, 3=equip sword+second campaign, 4=equip helmet+upgrade sword to +5, 5+=done
+  tutorialStep: number;
+  // XP Booster ("Пламя Ратоборца") — timestamp when it expires (ms), 0 = inactive
+  xpBoosterExpires: number;
+  // Rune Booster ("Рунный Прилив") — timestamp when it expires (ms), 0 = inactive
+  runeBoosterExpires: number;
+  // Soul Booster ("Зов Предков") — timestamp when it expires (ms), 0 = inactive
+  soulBoosterExpires: number;
+  // Multi-battle daily limit
+  multiBattlesUsedToday: number;
+  multiBattlesDate: string;
+  // VIP Card — timestamp when it expires (ms), 0 = inactive
+  vipExpiresAt: number;
+  vipDailyClaimedDate: string;
+  // Login bonus (7-day)
+  loginBonusDay: number;
+  loginBonusLastClaim: string;
 }
 
 export interface ShopPackage {
@@ -219,6 +249,20 @@ export const ELEMENT_ICONS: Record<Element, string> = {
   'Камень': '⛰️',
   'Тень': '🌑',
   'Свет': '☀️',
+};
+
+export const FACTION_ICONS: Record<string, string> = {
+  'Деревенская Застава': '/ui/faction_village.png',
+  'Речной Народ': '/ui/faction_river.png',
+  'Лесное Братство': '/ui/faction_forestbrotherhood.png',
+  'Горное Братство': '/ui/faction_mountainbrotherhood.png',
+  'Ночной Дозор': '/ui/faction_nightwatch.png',
+  'Светлая Обитель': '/ui/faction_lightabode.png',
+  'Пламенный Орден': '/ui/faction_flameorder.png',
+  'Божественный Пантеон': '/ui/faction_pantheon.png',
+  'Подводное Царство': '/ui/faction_underwater2.png',
+  'Подземное Царство': '/ui/faction_underground2.png',
+  'Небесное Воинство': '/ui/faction_celestialarmy2.png',
 };
 
 export const RARITY_ORDER: Record<Rarity, number> = {
@@ -613,10 +657,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: ogneDelImg,
     baseStats: { hp: 1350, atk: 175, def: 80, spd: 110, critChance: 22, critDmg: 65, resistance: 35, accuracy: 80 },
     skills: [
-      { name: 'Расплавленный Удар', description: 'Раскалённый удар прожигает защиту.', type: 'damage', power: 1.5, cooldown: 0,
-        effects: [{ type: 'burn', value: 5, duration: 2, chance: 0.5, target: 'enemy' }, { type: 'def_down', value: 10, duration: 2, chance: 0.3, target: 'enemy' }] },
-      { name: 'Огненный Шторм', description: 'Буря пламени накрывает врагов.', type: 'aoe', power: 1.2, cooldown: 4,
-        effects: [{ type: 'burn', value: 4, duration: 2, chance: 0.4, target: 'all_enemies' }] },
+      { name: 'Расплавленный Удар', description: 'Раскалённый удар прожигает защиту и ослабляет врага.', type: 'damage', power: 1.5, cooldown: 0,
+        effects: [{ type: 'burn', value: 5, duration: 2, chance: 0.5, target: 'enemy' }, { type: 'weaken', value: 15, duration: 2, chance: 0.3, target: 'enemy' }] },
+      { name: 'Адская Бомба', description: 'Закладывает бомбу из расплавленного металла на всех врагов.', type: 'aoe', power: 0.9, cooldown: 4,
+        effects: [{ type: 'bomb', value: 15, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'burn', value: 4, duration: 2, chance: 0.4, target: 'all_enemies' }] },
       { name: 'Закалка Стали', description: 'Огонь закаляет тело и дух.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'atk_up', value: 12, duration: 99, target: 'self' }, { type: 'def_up', value: 8, duration: 99, target: 'self' }] },
     ],
@@ -631,10 +675,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: omutnikImg,
     baseStats: { hp: 1500, atk: 140, def: 110, spd: 102, critChance: 12, critDmg: 52, resistance: 48, accuracy: 70 },
     skills: [
-      { name: 'Пучина', description: 'Затягивает врага в водоворот.', type: 'control', power: 0, cooldown: 0,
-        effects: [{ type: 'stun', duration: 1, chance: 0.35, target: 'enemy' }] },
-      { name: 'Глубинная Волна', description: 'Волна омывает всех врагов, снижая скорость.', type: 'aoe', power: 1.1, cooldown: 4,
-        effects: [{ type: 'spd_down', value: 15, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'def_down', value: 10, duration: 2, chance: 0.3, target: 'all_enemies' }] },
+      { name: 'Пучина', description: 'Затягивает врага в водоворот, замораживая.', type: 'damage', power: 1.3, cooldown: 0,
+        effects: [{ type: 'freeze', duration: 1, chance: 0.3, target: 'enemy' }, { type: 'spd_down', value: 10, duration: 2, chance: 0.4, target: 'enemy' }] },
+      { name: 'Провокация Глубин', description: 'Провоцирует врагов, принимая удары на себя и защищая союзников.', type: 'buff', power: 0, cooldown: 4,
+        effects: [{ type: 'taunt', duration: 2, target: 'self' }, { type: 'ally_protection', value: 50, duration: 2, target: 'self' }] },
       { name: 'Глубины Хранят', description: 'Водная стихия защищает.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'res_up', value: 15, duration: 99, target: 'self' }, { type: 'def_up', value: 10, duration: 99, target: 'self' }] },
     ],
@@ -649,10 +693,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: chashchobnikImg,
     baseStats: { hp: 1600, atk: 135, def: 120, spd: 100, critChance: 10, critDmg: 50, resistance: 45, accuracy: 62 },
     skills: [
-      { name: 'Удар Бурелома', description: 'Мощный удар стволом дерева.', type: 'damage', power: 1.5, cooldown: 0,
-        effects: [{ type: 'stun', duration: 1, chance: 0.25, target: 'enemy' }] },
-      { name: 'Лесная Крепость', description: 'Лес встаёт стеной, защищая союзников.', type: 'buff', power: 0, cooldown: 4,
-        effects: [{ type: 'def_up', value: 25, duration: 2, target: 'all_allies' }, { type: 'shield', value: 15, duration: 2, target: 'all_allies' }] },
+      { name: 'Удар Бурелома', description: 'Мощный удар стволом дерева с контратакой.', type: 'damage', power: 1.5, cooldown: 0,
+        effects: [{ type: 'counterattack', duration: 1, chance: 0.3, target: 'self' }] },
+      { name: 'Лесная Крепость', description: 'Лес встаёт стеной, блокируя все дебаффы и давая щит.', type: 'buff', power: 0, cooldown: 4,
+        effects: [{ type: 'block_debuffs', duration: 2, target: 'all_allies' }, { type: 'shield', value: 15, duration: 2, target: 'all_allies' }] },
       { name: 'Воля Леса', description: 'Лес не сдаётся.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'heal_over_time', value: 4, duration: 99, target: 'self' }] },
     ],
@@ -667,10 +711,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: utesnikImg,
     baseStats: { hp: 1550, atk: 155, def: 115, spd: 100, critChance: 14, critDmg: 55, resistance: 42, accuracy: 68 },
     skills: [
-      { name: 'Удар Утёса', description: 'Сокрушительный удар каменной глыбой.', type: 'damage', power: 1.5, cooldown: 0,
-        effects: [{ type: 'def_down', value: 15, duration: 2, chance: 0.4, target: 'enemy' }] },
-      { name: 'Горный Обвал', description: 'Камни обрушиваются на всех врагов.', type: 'aoe', power: 1.1, cooldown: 4,
-        effects: [{ type: 'stun', duration: 1, chance: 0.2, target: 'all_enemies' }] },
+      { name: 'Удар Утёса', description: 'Сокрушительный удар, оглушающий врага.', type: 'damage', power: 1.5, cooldown: 0,
+        effects: [{ type: 'stun', duration: 1, chance: 0.25, target: 'enemy' }, { type: 'def_down', value: 15, duration: 2, chance: 0.4, target: 'enemy' }] },
+      { name: 'Каменная Стена', description: 'Провоцирует врагов и отражает часть урона.', type: 'buff', power: 0, cooldown: 4,
+        effects: [{ type: 'taunt', duration: 2, target: 'self' }, { type: 'reflect_damage', value: 20, duration: 2, target: 'self' }] },
       { name: 'Несокрушимый Утёс', description: 'Камень непоколебим.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'def_up', value: 15, duration: 99, target: 'self' }, { type: 'res_up', value: 10, duration: 99, target: 'self' }] },
     ],
@@ -685,10 +729,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: tenepletImg,
     baseStats: { hp: 1250, atk: 178, def: 72, spd: 118, critChance: 25, critDmg: 68, resistance: 30, accuracy: 88 },
     skills: [
-      { name: 'Теневая Игла', description: 'Незримый удар, пронзающий защиту.', type: 'damage', power: 1.5, cooldown: 0,
-        effects: [{ type: 'poison', value: 4, duration: 2, chance: 0.5, target: 'enemy' }] },
-      { name: 'Сеть Мрака', description: 'Тень опутывает врага, обездвиживая.', type: 'control', power: 0, cooldown: 4,
-        effects: [{ type: 'stun', duration: 1, chance: 0.7, target: 'enemy' }, { type: 'spd_down', value: 20, duration: 2, chance: 0.8, target: 'enemy' }] },
+      { name: 'Теневая Игла', description: 'Незримый удар, отравляющий и вызывающий кровотечение.', type: 'damage', power: 1.5, cooldown: 0,
+        effects: [{ type: 'poison', value: 4, duration: 2, chance: 0.5, target: 'enemy' }, { type: 'bleed', value: 4, duration: 2, chance: 0.3, target: 'enemy' }] },
+      { name: 'Сеть Мрака', description: 'Тень опутывает врага, усыпляя и снижая исцеление.', type: 'control', power: 0, cooldown: 4,
+        effects: [{ type: 'sleep', duration: 1, chance: 0.7, target: 'enemy' }, { type: 'heal_reduction', value: 50, duration: 2, chance: 0.8, target: 'enemy' }] },
       { name: 'Растворение', description: 'Тенеплёт сливается с тьмой.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'spd_up', value: 12, duration: 99, target: 'self' }, { type: 'crit_up', value: 8, duration: 99, target: 'self' }] },
     ],
@@ -703,10 +747,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: zlatovidImg,
     baseStats: { hp: 1400, atk: 150, def: 90, spd: 108, critChance: 18, critDmg: 60, resistance: 45, accuracy: 85 },
     skills: [
-      { name: 'Золотой Луч', description: 'Луч правды обжигает зло.', type: 'damage', power: 1.4, cooldown: 0,
-        effects: [{ type: 'acc_down', value: 15, duration: 2, chance: 0.4, target: 'enemy' }] },
-      { name: 'Вещий Свет', description: 'Озаряет союзников, повышая меткость и атаку.', type: 'buff', power: 0, cooldown: 4,
-        effects: [{ type: 'atk_up', value: 20, duration: 2, target: 'all_allies' }, { type: 'acc_up', value: 15, duration: 2, target: 'all_allies' }] },
+      { name: 'Золотой Луч', description: 'Луч правды обжигает зло и даёт невидимость.', type: 'damage', power: 1.4, cooldown: 0,
+        effects: [{ type: 'acc_down', value: 15, duration: 2, chance: 0.4, target: 'enemy' }, { type: 'veil', duration: 1, chance: 0.3, target: 'self' }] },
+      { name: 'Вещий Свет', description: 'Озаряет союзников, блокируя дебаффы и повышая атаку.', type: 'buff', power: 0, cooldown: 4,
+        effects: [{ type: 'block_debuffs', duration: 2, target: 'all_allies' }, { type: 'atk_up', value: 20, duration: 2, target: 'all_allies' }] },
       { name: 'Ясновидение', description: 'Видит больше других.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'acc_up', value: 15, duration: 99, target: 'self' }, { type: 'res_up', value: 10, duration: 99, target: 'self' }] },
     ],
@@ -727,10 +771,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: polymyaImg,
     baseStats: { hp: 1700, atk: 215, def: 90, spd: 115, critChance: 28, critDmg: 75, resistance: 45, accuracy: 90 },
     skills: [
-      { name: 'Пламя Души', description: 'Испепеляющий удар чистым огнём.', type: 'damage', power: 2.0, cooldown: 0,
-        effects: [{ type: 'burn', value: 6, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'def_down', value: 15, duration: 2, chance: 0.3, target: 'enemy' }] },
-      { name: 'Пожар Небесный', description: 'Огненный шторм обрушивается на всех врагов.', type: 'aoe', power: 1.4, cooldown: 5,
-        effects: [{ type: 'burn', value: 5, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'atk_down', value: 15, duration: 2, chance: 0.3, target: 'all_enemies' }] },
+      { name: 'Пламя Души', description: 'Испепеляющий удар чистым огнём, дающий доп. ход при крите.', type: 'damage', power: 2.0, cooldown: 0,
+        effects: [{ type: 'burn', value: 6, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'extra_turn', chance: 0.2, target: 'self' }] },
+      { name: 'Пожар Небесный', description: 'Огненный шторм с бомбами и ожогами.', type: 'aoe', power: 1.2, cooldown: 5,
+        effects: [{ type: 'bomb', value: 18, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'burn', value: 5, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'weaken', value: 15, duration: 2, chance: 0.3, target: 'all_enemies' }] },
       { name: 'Неугасимый', description: 'Огонь никогда не гаснет.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'atk_up', value: 15, duration: 99, target: 'self' }, { type: 'critdmg_up', value: 12, duration: 99, target: 'self' }, { type: 'spd_up', value: 8, duration: 99, target: 'self' }] },
     ],
@@ -745,10 +789,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: puchinaImg,
     baseStats: { hp: 1900, atk: 170, def: 130, spd: 108, critChance: 18, critDmg: 62, resistance: 65, accuracy: 82 },
     skills: [
-      { name: 'Удар Шторма', description: 'Штормовая волна сокрушает врага.', type: 'damage', power: 1.8, cooldown: 0,
-        effects: [{ type: 'spd_down', value: 20, duration: 2, chance: 0.5, target: 'enemy' }] },
-      { name: 'Великий Потоп', description: 'Стена воды обрушивается на всех врагов и срезает шкалу хода.', type: 'aoe', power: 1.3, cooldown: 5,
-        effects: [{ type: 'stun', duration: 1, chance: 0.3, target: 'all_enemies' }, { type: 'spd_down', value: 15, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'tm_reduce', value: 30, target: 'all_enemies' }] },
+      { name: 'Удар Шторма', description: 'Штормовая волна замораживает и крадёт скорость.', type: 'damage', power: 1.8, cooldown: 0,
+        effects: [{ type: 'freeze', duration: 1, chance: 0.35, target: 'enemy' }, { type: 'spd_steal', value: 20, duration: 2, chance: 0.4, target: 'enemy' }] },
+      { name: 'Великий Потоп', description: 'Стена воды блокирует баффы врагов и срезает шкалу хода.', type: 'aoe', power: 1.3, cooldown: 5,
+        effects: [{ type: 'block_buffs', duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'spd_down', value: 15, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'tm_reduce', value: 30, target: 'all_enemies' }] },
       { name: 'Глубинная Мощь', description: 'Мощь бездны защищает и исцеляет.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'def_up', value: 12, duration: 99, target: 'self' }, { type: 'res_up', value: 15, duration: 99, target: 'self' }, { type: 'heal_over_time', value: 3, duration: 99, target: 'self' }] },
     ],
@@ -763,10 +807,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: dremuchiyImg,
     baseStats: { hp: 2000, atk: 165, def: 140, spd: 105, critChance: 16, critDmg: 60, resistance: 60, accuracy: 72 },
     skills: [
-      { name: 'Хватка Чащи', description: 'Ветви хватают и душат врага.', type: 'damage', power: 1.8, cooldown: 0,
-        effects: [{ type: 'poison', value: 5, duration: 2, chance: 0.5, target: 'enemy' }, { type: 'spd_down', value: 15, duration: 2, chance: 0.4, target: 'enemy' }] },
-      { name: 'Лесная Твердыня', description: 'Лес встаёт несокрушимой стеной.', type: 'buff', power: 0, cooldown: 5,
-        effects: [{ type: 'def_up', value: 30, duration: 3, target: 'all_allies' }, { type: 'shield', value: 20, duration: 2, target: 'all_allies' }] },
+      { name: 'Хватка Чащи', description: 'Ветви хватают врага, контратака и отравление.', type: 'damage', power: 1.8, cooldown: 0,
+        effects: [{ type: 'counterattack', duration: 2, chance: 0.4, target: 'self' }, { type: 'poison', value: 5, duration: 2, chance: 0.5, target: 'enemy' }] },
+      { name: 'Лесная Твердыня', description: 'Лес защищает союзников, отражая урон и принимая удары.', type: 'buff', power: 0, cooldown: 5,
+        effects: [{ type: 'ally_protection', value: 50, duration: 2, target: 'self' }, { type: 'reflect_damage', value: 15, duration: 2, target: 'self' }, { type: 'shield', value: 20, duration: 2, target: 'all_allies' }] },
       { name: 'Древний Лес', description: 'Вековая мудрость леса.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'def_up', value: 15, duration: 99, target: 'self' }, { type: 'heal_over_time', value: 4, duration: 99, target: 'self' }] },
     ],
@@ -781,10 +825,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: kryazhImg,
     baseStats: { hp: 2000, atk: 175, def: 135, spd: 106, critChance: 20, critDmg: 65, resistance: 55, accuracy: 78 },
     skills: [
-      { name: 'Сокрушение Горы', description: 'Удар, раскалывающий камень.', type: 'damage', power: 2.0, cooldown: 0,
-        effects: [{ type: 'def_down', value: 20, duration: 2, chance: 0.5, target: 'enemy' }] },
-      { name: 'Землетрясение', description: 'Земля содрогается под ногами врагов.', type: 'aoe', power: 1.3, cooldown: 5,
-        effects: [{ type: 'stun', duration: 1, chance: 0.25, target: 'all_enemies' }, { type: 'def_down', value: 15, duration: 2, chance: 0.4, target: 'all_enemies' }] },
+      { name: 'Сокрушение Горы', description: 'Удар, раскалывающий камень. Оглушает и снижает защиту.', type: 'damage', power: 2.0, cooldown: 0,
+        effects: [{ type: 'stun', duration: 1, chance: 0.3, target: 'enemy' }, { type: 'def_down', value: 20, duration: 2, chance: 0.5, target: 'enemy' }] },
+      { name: 'Несокрушимая Твердь', description: 'Становится неубиваемым, провоцирует и блокирует урон.', type: 'buff', power: 0, cooldown: 5,
+        effects: [{ type: 'unkillable', duration: 2, target: 'self' }, { type: 'taunt', duration: 2, target: 'self' }, { type: 'block_damage', duration: 1, target: 'self' }] },
       { name: 'Нерушимый Кряж', description: 'Горы не рушатся.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'def_up', value: 18, duration: 99, target: 'self' }, { type: 'res_up', value: 12, duration: 99, target: 'self' }] },
     ],
@@ -799,10 +843,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: navyakImg,
     baseStats: { hp: 1600, atk: 220, def: 85, spd: 122, critChance: 30, critDmg: 78, resistance: 42, accuracy: 98 },
     skills: [
-      { name: 'Касание Нави', description: 'Прикосновение смерти высасывает жизнь.', type: 'damage', power: 2.0, cooldown: 0,
-        effects: [{ type: 'lifesteal', value: 20, target: 'self' }, { type: 'poison', value: 5, duration: 2, chance: 0.5, target: 'enemy' }] },
-      { name: 'Вой Мертвецов', description: 'Крик из Нави ужасает всех врагов.', type: 'aoe', power: 1.3, cooldown: 5,
-        effects: [{ type: 'atk_down', value: 20, duration: 2, chance: 0.6, target: 'all_enemies' }, { type: 'spd_down', value: 15, duration: 2, chance: 0.5, target: 'all_enemies' }] },
+      { name: 'Касание Нави', description: 'Прикосновение смерти вызывает кровотечение и ослабляет.', type: 'damage', power: 2.0, cooldown: 0,
+        effects: [{ type: 'bleed', value: 5, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'weaken', value: 20, duration: 2, chance: 0.4, target: 'enemy' }, { type: 'lifesteal', value: 20, target: 'self' }] },
+      { name: 'Вой Мертвецов', description: 'Крик из Нави превращает и снижает исцеление.', type: 'aoe', power: 1.3, cooldown: 5,
+        effects: [{ type: 'polymorph', duration: 1, chance: 0.25, target: 'all_enemies' }, { type: 'heal_reduction', value: 100, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'atk_down', value: 20, duration: 2, chance: 0.6, target: 'all_enemies' }] },
       { name: 'Проклятие Нави', description: 'Нежить не знает усталости.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'atk_up', value: 15, duration: 99, target: 'self' }, { type: 'spd_up', value: 10, duration: 99, target: 'self' }, { type: 'crit_up', value: 8, duration: 99, target: 'self' }] },
     ],
@@ -817,10 +861,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: yariloImg,
     baseStats: { hp: 1800, atk: 195, def: 110, spd: 112, critChance: 22, critDmg: 70, resistance: 58, accuracy: 88 },
     skills: [
-      { name: 'Солнечный Удар', description: 'Мощь полуденного солнца обрушивается на врага.', type: 'damage', power: 1.9, cooldown: 0,
-        effects: [{ type: 'burn', value: 5, duration: 2, chance: 0.4, target: 'enemy' }] },
-      { name: 'Весеннее Возрождение', description: 'Солнце исцеляет, укрепляет и заливает шкалу хода.', type: 'buff', power: 0, cooldown: 5,
-        effects: [{ type: 'heal', value: 25, target: 'all_allies' }, { type: 'atk_up', value: 25, duration: 2, target: 'all_allies' }, { type: 'def_up', value: 15, duration: 2, target: 'all_allies' }, { type: 'tm_boost', value: 30, target: 'all_allies' }] },
+      { name: 'Солнечный Удар', description: 'Мощь полуденного солнца обжигает и даёт невидимость.', type: 'damage', power: 1.9, cooldown: 0,
+        effects: [{ type: 'burn', value: 5, duration: 2, chance: 0.4, target: 'enemy' }, { type: 'veil', duration: 1, chance: 0.3, target: 'self' }] },
+      { name: 'Весеннее Возрождение', description: 'Солнце воскрешает павшего, исцеляет и делает неубиваемым.', type: 'buff', power: 0, cooldown: 5,
+        effects: [{ type: 'revive', value: 30, target: 'dead_ally' }, { type: 'heal', value: 25, target: 'all_allies' }, { type: 'unkillable', duration: 1, target: 'lowest_hp_ally' }] },
       { name: 'Сила Солнца', description: 'Солнечная сила не угасает.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'atk_up', value: 12, duration: 99, target: 'self' }, { type: 'res_up', value: 12, duration: 99, target: 'self' }] },
     ],
@@ -842,10 +886,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: svarozhichImg,
     baseStats: { hp: 2100, atk: 245, def: 100, spd: 125, critChance: 32, critDmg: 95, resistance: 55, accuracy: 105 },
     skills: [
-      { name: 'Божественное Пламя', description: 'Священный огонь испепеляет всё.', type: 'damage', power: 2.5, cooldown: 0,
-        effects: [{ type: 'burn', value: 8, duration: 2, chance: 0.7, target: 'enemy' }, { type: 'def_down', value: 20, duration: 2, chance: 0.4, target: 'enemy' }, { type: 'atk_down', value: 10, duration: 2, chance: 0.3, target: 'enemy' }] },
-      { name: 'Небесный Пожар', description: 'Огонь с небес обрушивается на врагов и срезает шкалу хода.', type: 'aoe', power: 1.8, cooldown: 6,
-        effects: [{ type: 'burn', value: 6, duration: 2, chance: 0.6, target: 'all_enemies' }, { type: 'def_down', value: 15, duration: 2, chance: 0.4, target: 'all_enemies' }, { type: 'dispel', target: 'all_enemies' }, { type: 'tm_reduce', value: 25, target: 'all_enemies' }] },
+      { name: 'Божественное Пламя', description: 'Священный огонь испепеляет, ослабляет и даёт доп. ход.', type: 'damage', power: 2.5, cooldown: 0,
+        effects: [{ type: 'burn', value: 8, duration: 2, chance: 0.7, target: 'enemy' }, { type: 'weaken', value: 25, duration: 2, chance: 0.4, target: 'enemy' }, { type: 'extra_turn', chance: 0.15, target: 'self' }] },
+      { name: 'Небесный Пожар', description: 'Огонь с небес: бомбы, рассеивание баффов и срез шкалы хода.', type: 'aoe', power: 1.5, cooldown: 6,
+        effects: [{ type: 'bomb', value: 20, duration: 2, chance: 0.6, target: 'all_enemies' }, { type: 'dispel', target: 'all_enemies' }, { type: 'tm_reduce', value: 25, target: 'all_enemies' }, { type: 'burn', value: 6, duration: 2, chance: 0.5, target: 'all_enemies' }] },
       { name: 'Кровь Сварога', description: 'Божественная кровь даёт силу.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'atk_up', value: 18, duration: 99, target: 'self' }, { type: 'critdmg_up', value: 15, duration: 99, target: 'self' }, { type: 'spd_up', value: 10, duration: 99, target: 'self' }] },
     ],
@@ -861,10 +905,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: morskayaTsaritsaImg,
     baseStats: { hp: 2400, atk: 195, def: 150, spd: 112, critChance: 22, critDmg: 72, resistance: 88, accuracy: 90 },
     skills: [
-      { name: 'Гнев Океана', description: 'Вся мощь океана обрушивается на врага.', type: 'damage', power: 2.2, cooldown: 0,
-        effects: [{ type: 'stun', duration: 1, chance: 0.4, target: 'enemy' }, { type: 'spd_down', value: 25, duration: 2, chance: 0.6, target: 'enemy' }] },
-      { name: 'Целебный Прилив', description: 'Морские воды исцеляют и очищают всех союзников.', type: 'heal', power: 0, cooldown: 6,
-        effects: [{ type: 'heal', value: 30, target: 'all_allies' }, { type: 'cleanse', target: 'all_allies' }, { type: 'res_up', value: 20, duration: 2, target: 'all_allies' }] },
+      { name: 'Гнев Океана', description: 'Вся мощь океана замораживает и крадёт скорость.', type: 'damage', power: 2.2, cooldown: 0,
+        effects: [{ type: 'freeze', duration: 1, chance: 0.4, target: 'enemy' }, { type: 'spd_steal', value: 25, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'block_buffs', duration: 2, chance: 0.4, target: 'enemy' }] },
+      { name: 'Целебный Прилив', description: 'Морские воды воскрешают, исцеляют, очищают и дают невидимость.', type: 'heal', power: 0, cooldown: 6,
+        effects: [{ type: 'revive', value: 40, target: 'dead_ally' }, { type: 'heal', value: 30, target: 'all_allies' }, { type: 'cleanse', target: 'all_allies' }, { type: 'veil', duration: 2, target: 'all_allies' }] },
       { name: 'Власть Глубин', description: 'Глубины моря подчинены её воле.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'def_up', value: 15, duration: 99, target: 'self' }, { type: 'res_up', value: 18, duration: 99, target: 'self' }, { type: 'heal_over_time', value: 4, duration: 99, target: 'self' }] },
     ],
@@ -879,10 +923,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: berendeyImg,
     baseStats: { hp: 2500, atk: 195, def: 160, spd: 110, critChance: 20, critDmg: 70, resistance: 80, accuracy: 82 },
     skills: [
-      { name: 'Гнев Леса', description: 'Весь лес восстаёт против врага.', type: 'damage', power: 2.3, cooldown: 0,
-        effects: [{ type: 'poison', value: 6, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'spd_down', value: 20, duration: 2, chance: 0.5, target: 'enemy' }] },
-      { name: 'Возрождение Леса', description: 'Природа возрождает павших и исцеляет живых.', type: 'heal', power: 0, cooldown: 6,
-        effects: [{ type: 'heal', value: 35, target: 'all_allies' }, { type: 'def_up', value: 25, duration: 3, target: 'all_allies' }, { type: 'heal_over_time', value: 5, duration: 3, target: 'all_allies' }] },
+      { name: 'Гнев Леса', description: 'Весь лес восстаёт, отравляя и давая контратаку.', type: 'damage', power: 2.3, cooldown: 0,
+        effects: [{ type: 'poison', value: 6, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'counterattack', duration: 2, chance: 0.4, target: 'self' }, { type: 'spd_down', value: 20, duration: 2, chance: 0.5, target: 'enemy' }] },
+      { name: 'Возрождение Леса', description: 'Природа делает неубиваемым, защищает союзников и даёт щит.', type: 'buff', power: 0, cooldown: 6,
+        effects: [{ type: 'unkillable', duration: 2, target: 'lowest_hp_ally' }, { type: 'ally_protection', value: 50, duration: 2, target: 'self' }, { type: 'shield', value: 20, duration: 2, target: 'all_allies' }, { type: 'heal_over_time', value: 5, duration: 3, target: 'all_allies' }] },
       { name: 'Дух Леса', description: 'Лес — его плоть и кровь.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'def_up', value: 18, duration: 99, target: 'self' }, { type: 'res_up', value: 15, duration: 99, target: 'self' }, { type: 'heal_over_time', value: 5, duration: 99, target: 'self' }] },
     ],
@@ -897,10 +941,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: gorynyaImg,
     baseStats: { hp: 2500, atk: 210, def: 155, spd: 110, critChance: 22, critDmg: 75, resistance: 70, accuracy: 85 },
     skills: [
-      { name: 'Кулак Горы', description: 'Удар, от которого трескаются скалы.', type: 'damage', power: 2.5, cooldown: 0,
-        effects: [{ type: 'def_down', value: 25, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'stun', duration: 1, chance: 0.3, target: 'enemy' }] },
-      { name: 'Каменный Шторм', description: 'Лавина камней погребает всех врагов.', type: 'aoe', power: 1.7, cooldown: 6,
-        effects: [{ type: 'stun', duration: 1, chance: 0.3, target: 'all_enemies' }, { type: 'def_down', value: 20, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'spd_down', value: 15, duration: 2, chance: 0.4, target: 'all_enemies' }] },
+      { name: 'Кулак Горы', description: 'Удар, от которого трескаются скалы. Оглушает и наводит страх.', type: 'damage', power: 2.5, cooldown: 0,
+        effects: [{ type: 'stun', duration: 1, chance: 0.35, target: 'enemy' }, { type: 'def_down', value: 25, duration: 2, chance: 0.6, target: 'enemy' }, { type: 'fear', duration: 1, chance: 0.2, target: 'enemy' }] },
+      { name: 'Каменный Шторм', description: 'Провоцирует всех, блокирует урон и отражает его обратно.', type: 'buff', power: 0, cooldown: 6,
+        effects: [{ type: 'taunt', duration: 2, target: 'self' }, { type: 'block_damage', duration: 1, target: 'self' }, { type: 'reflect_damage', value: 30, duration: 2, target: 'self' }, { type: 'unkillable', duration: 2, target: 'self' }] },
       { name: 'Вечный Камень', description: 'Горы стоят вечно.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'def_up', value: 20, duration: 99, target: 'self' }, { type: 'res_up', value: 15, duration: 99, target: 'self' }, { type: 'shield', value: 10, duration: 99, target: 'self' }] },
     ],
@@ -915,10 +959,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: chernobogImg,
     baseStats: { hp: 1900, atk: 250, def: 95, spd: 128, critChance: 35, critDmg: 98, resistance: 52, accuracy: 108 },
     skills: [
-      { name: 'Поглощение', description: 'Поглощает жизненную силу врага.', type: 'damage', power: 2.5, cooldown: 0,
-        effects: [{ type: 'lifesteal', value: 25, target: 'self' }, { type: 'poison', value: 7, duration: 2, chance: 0.7, target: 'enemy' }, { type: 'atk_down', value: 15, duration: 2, chance: 0.5, target: 'enemy' }] },
-      { name: 'Тьма Вечная', description: 'Абсолютная тьма накрывает поле боя.', type: 'aoe', power: 1.8, cooldown: 6,
-        effects: [{ type: 'atk_down', value: 25, duration: 2, chance: 0.7, target: 'all_enemies' }, { type: 'acc_down', value: 20, duration: 2, chance: 0.6, target: 'all_enemies' }, { type: 'spd_down', value: 15, duration: 2, chance: 0.5, target: 'all_enemies' }] },
+      { name: 'Поглощение', description: 'Поглощает жизнь, наводит страх и превращает.', type: 'damage', power: 2.5, cooldown: 0,
+        effects: [{ type: 'fear', duration: 1, chance: 0.4, target: 'enemy' }, { type: 'lifesteal', value: 25, target: 'self' }, { type: 'polymorph', duration: 1, chance: 0.2, target: 'enemy' }] },
+      { name: 'Тьма Вечная', description: 'Абсолютная тьма: бомбы, штраф лечения и блок баффов.', type: 'aoe', power: 1.5, cooldown: 6,
+        effects: [{ type: 'bomb', value: 20, duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'heal_reduction', value: 100, duration: 2, chance: 0.6, target: 'all_enemies' }, { type: 'block_buffs', duration: 2, chance: 0.5, target: 'all_enemies' }, { type: 'acc_down', value: 20, duration: 2, chance: 0.6, target: 'all_enemies' }] },
       { name: 'Абсолютный Мрак', description: 'Тьма — его стихия и сила.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'atk_up', value: 20, duration: 99, target: 'self' }, { type: 'spd_up', value: 12, duration: 99, target: 'self' }, { type: 'crit_up', value: 10, duration: 99, target: 'self' }] },
     ],
@@ -933,10 +977,10 @@ export const CHAMPIONS: Champion[] = [
     imageUrl: belobogImg,
     baseStats: { hp: 2300, atk: 220, def: 130, spd: 118, critChance: 25, critDmg: 85, resistance: 82, accuracy: 95 },
     skills: [
-      { name: 'Суд Света', description: 'Божественный свет карает зло.', type: 'damage', power: 2.3, cooldown: 0,
-        effects: [{ type: 'burn', value: 6, duration: 2, chance: 0.5, target: 'enemy' }, { type: 'acc_down', value: 20, duration: 2, chance: 0.5, target: 'enemy' }] },
-      { name: 'Божественное Благо', description: 'Свет Белобога исцеляет, укрепляет и заливает шкалу хода.', type: 'heal', power: 0, cooldown: 6,
-        effects: [{ type: 'heal', value: 35, target: 'all_allies' }, { type: 'atk_up', value: 25, duration: 3, target: 'all_allies' }, { type: 'cleanse', target: 'all_allies' }, { type: 'tm_boost', value: 25, target: 'all_allies' }] },
+      { name: 'Суд Света', description: 'Божественный свет рассеивает тьму и очищает.', type: 'damage', power: 2.3, cooldown: 0,
+        effects: [{ type: 'dispel', target: 'enemy' }, { type: 'burn', value: 6, duration: 2, chance: 0.5, target: 'enemy' }, { type: 'acc_down', value: 20, duration: 2, chance: 0.5, target: 'enemy' }] },
+      { name: 'Божественное Благо', description: 'Свет воскрешает, делает неубиваемым, блокирует дебаффы и исцеляет.', type: 'heal', power: 0, cooldown: 6,
+        effects: [{ type: 'revive', value: 50, target: 'dead_ally' }, { type: 'unkillable', duration: 2, target: 'lowest_hp_ally' }, { type: 'block_debuffs', duration: 2, target: 'all_allies' }, { type: 'heal', value: 35, target: 'all_allies' }] },
       { name: 'Вечный Свет', description: 'Свет не меркнет никогда.', type: 'passive', power: 0, cooldown: 0,
         effects: [{ type: 'atk_up', value: 15, duration: 99, target: 'self' }, { type: 'res_up', value: 18, duration: 99, target: 'self' }, { type: 'heal_over_time', value: 4, duration: 99, target: 'self' }] },
     ],
@@ -946,8 +990,8 @@ export const CHAMPIONS: Champion[] = [
 
 export function createInitialPlayerState(): PlayerState {
   return {
-    username: 'Витязь',
-    souls: 15000,
+    username: '',
+    souls: 0,
     runes: 15000,
     mithrilRunes: 0,
     energy: MAX_ENERGY,
@@ -983,6 +1027,21 @@ export function createInitialPlayerState(): PlayerState {
     cerberusAttacksLeft: 3,
     lastCerberusAttackDate: '',
     cerberusRewardsClaimed: false,
+    abyssProgress: createInitialAbyssProgress(),
+    relics: [],
+    vessels: { ...createInitialVesselInventory(), 'Самоцветный': 1, 'Калиновый': 1, 'Сказанный': 1, 'Заветный': 1 },
+    vesselPity: createInitialVesselPity(),
+    accountXp: 0,
+    tutorialStep: 0,
+    xpBoosterExpires: 0,
+    runeBoosterExpires: 0,
+    soulBoosterExpires: 0,
+    multiBattlesUsedToday: 0,
+    multiBattlesDate: '',
+    vipExpiresAt: 0,
+    vipDailyClaimedDate: '',
+    loginBonusDay: 0,
+    loginBonusLastClaim: '',
   };
 }
 

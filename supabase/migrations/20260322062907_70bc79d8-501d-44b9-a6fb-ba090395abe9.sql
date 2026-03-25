@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS arena_squad jsonb DEFAULT '[]'::jsonb;

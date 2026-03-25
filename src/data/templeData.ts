@@ -1,5 +1,5 @@
 import type { Champion, Element, Skill } from '@/data/gameData';
-import type { EffectApplication } from '@/types/game';
+import type { EffectApplication, EffectType } from '@/types/game';
 import type { ArtifactRarity } from '@/data/artifacts';
 
 export type TempleElement = Element | 'Божественность';
@@ -335,4 +335,136 @@ export function rollRuneReward(temple: Temple, floor: number): DivineRune[] {
     });
   }
   return runes;
+}
+
+// === Temple Modifier System ===
+
+export interface TempleModifier {
+  id: string;
+  icon: string;
+  label: string;
+  description: string;
+  playerDebuffs?: { type: EffectType; value: number; duration: number }[];
+  enemyBuffs?: { type: EffectType; value: number; duration: number }[];
+}
+
+export interface TempleFloorModifiers {
+  floorBuff: { icon: string; label: string; effects: { type: EffectType; value: number; duration: number }[] } | null;
+  modifiers: TempleModifier[];
+  elementalHazard: { icon: string; label: string; effects: { type: EffectType; value: number; duration: number }[] } | null;
+}
+
+/** Element-themed hazards that debuff the player */
+const ELEMENTAL_HAZARDS: Record<TempleElement, { icon: string; label: string; effects: { type: EffectType; value: number; duration: number }[] }> = {
+  'Огонь': { icon: '🔥', label: 'Жар: Ожог 2 хода', effects: [{ type: 'burn', value: 5, duration: 2 }] },
+  'Вода': { icon: '❄️', label: 'Мороз: -15% СКР', effects: [{ type: 'spd_down', value: 15, duration: 2 }] },
+  'Лес': { icon: '🌿', label: 'Яд: Отравление', effects: [{ type: 'poison', value: 5, duration: 2 }] },
+  'Камень': { icon: '⛰️', label: 'Тяжесть: -20% ЗАЩ', effects: [{ type: 'def_down', value: 20, duration: 2 }] },
+  'Тень': { icon: '🌑', label: 'Тьма: -20% Меткости', effects: [{ type: 'acc_down', value: 20, duration: 2 }] },
+  'Свет': { icon: '✨', label: 'Слепота: -15% КРИТ', effects: [{ type: 'crit_down', value: 15, duration: 2 }] },
+  'Божественность': { icon: '⚡', label: 'Суд: Ослабление', effects: [{ type: 'weaken', value: 25, duration: 2 }] },
+};
+
+/** Floor-based boss buffs (bosses get stronger per floor) */
+const FLOOR_BOSS_BUFFS: { icon: string; label: string; effects: { type: EffectType; value: number; duration: number }[] }[] = [
+  // Floor 1: no buff
+  { icon: '', label: '', effects: [] },
+  // Floor 2: small defense
+  { icon: '🛡️', label: 'Стойкость: +15% ЗАЩ', effects: [{ type: 'def_up', value: 15, duration: 3 }] },
+  // Floor 3: attack + speed
+  { icon: '⚔️', label: 'Ярость: +20% АТК, +10% СКР', effects: [{ type: 'atk_up', value: 20, duration: 3 }, { type: 'spd_up', value: 10, duration: 3 }] },
+  // Floor 4: crit + shield
+  { icon: '🔥', label: 'Мощь: +20% КРИТ, Щит 15%', effects: [{ type: 'crit_up', value: 20, duration: 3 }, { type: 'shield', value: 15, duration: 3 }] },
+  // Floor 5: all stats + regen
+  { icon: '👑', label: 'Божественная мощь', effects: [{ type: 'atk_up', value: 25, duration: 3 }, { type: 'def_up', value: 25, duration: 3 }, { type: 'heal_over_time', value: 5, duration: 3 }] },
+];
+
+/** Temple-specific modifier pool */
+const TEMPLE_MODIFIER_POOL: TempleModifier[] = [
+  {
+    id: 'temple_heal_block',
+    icon: '🩸',
+    label: 'Проклятие храма',
+    description: '-50% лечения на 3 хода',
+    playerDebuffs: [{ type: 'heal_reduction', value: 50, duration: 3 }],
+  },
+  {
+    id: 'temple_weaken',
+    icon: '💀',
+    label: 'Аура немощи',
+    description: 'Ослабление: +25% входящего урона',
+    playerDebuffs: [{ type: 'weaken', value: 25, duration: 2 }],
+  },
+  {
+    id: 'temple_slow',
+    icon: '🐌',
+    label: 'Тяжёлый воздух',
+    description: '-15% скорости на 2 хода',
+    playerDebuffs: [{ type: 'spd_down', value: 15, duration: 2 }],
+  },
+  {
+    id: 'temple_brittle',
+    icon: '💔',
+    label: 'Хрупкие доспехи',
+    description: '-20% защиты на 2 хода',
+    playerDebuffs: [{ type: 'def_down', value: 20, duration: 2 }],
+  },
+  {
+    id: 'temple_boss_shield',
+    icon: '🛡️',
+    label: 'Барьер элементаля',
+    description: 'Босс начинает с щитом 15% ЗДР',
+    enemyBuffs: [{ type: 'shield', value: 15, duration: 3 }],
+  },
+  {
+    id: 'temple_boss_counter',
+    icon: '⚔️',
+    label: 'Контрудар стихии',
+    description: 'Босс начинает с контратакой',
+    enemyBuffs: [{ type: 'counterattack', value: 75, duration: 2 }],
+  },
+  {
+    id: 'temple_block_buffs',
+    icon: '🚫',
+    label: 'Подавление',
+    description: 'Блок бонусов на 1 ход',
+    playerDebuffs: [{ type: 'block_buffs', value: 0, duration: 1 }],
+  },
+  {
+    id: 'temple_atk_down',
+    icon: '🗡️',
+    label: 'Притупление',
+    description: '-15% АТК на 2 хода',
+    playerDebuffs: [{ type: 'atk_down', value: 15, duration: 2 }],
+  },
+];
+
+/** Get modifiers for a temple floor */
+export function getTempleFloorModifiers(element: TempleElement, floor: number): TempleFloorModifiers {
+  // Floor 1: no modifiers
+  if (floor <= 1) {
+    return { floorBuff: null, modifiers: [], elementalHazard: null };
+  }
+
+  // Floor buff for boss
+  const floorBuff = floor <= FLOOR_BOSS_BUFFS.length && FLOOR_BOSS_BUFFS[floor - 1].effects.length > 0
+    ? FLOOR_BOSS_BUFFS[floor - 1]
+    : null;
+
+  // Elemental hazard starts at floor 3
+  const elementalHazard = floor >= 3 ? ELEMENTAL_HAZARDS[element] : null;
+
+  // Stage modifiers: 0 for floor 1-2, 1 for floor 3, 2 for floor 4, 3 for floor 5
+  const modCount = Math.max(0, floor - 2);
+  const seed = (element.charCodeAt(0) * 31 + floor * 17);
+  const mods: TempleModifier[] = [];
+  for (let i = 0; i < modCount; i++) {
+    const idx = (seed + i * 7) % TEMPLE_MODIFIER_POOL.length;
+    const mod = TEMPLE_MODIFIER_POOL[idx];
+    if (!mods.find(m => m.id === mod.id)) {
+      mods.push(mod);
+    }
+  }
+
+  return { floorBuff, modifiers: mods, elementalHazard };
 }

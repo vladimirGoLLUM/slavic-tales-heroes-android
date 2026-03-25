@@ -4,6 +4,8 @@ import { useGame } from '@/context/GameContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { APP_VERSION } from '@/main';
+import AvatarPicker from '@/components/settings/AvatarPicker';
 
 export default function SettingsPage() {
   const { resetProgress, saving, player, setUsername } = useGame();
@@ -40,47 +42,55 @@ export default function SettingsPage() {
           {/* Account info */}
           <div className="bg-surface/50 backdrop-blur-sm rounded-xl p-4 card-lubok border border-border/30">
             <h2 className="font-kelly text-sm text-muted-foreground mb-2">Аккаунт</h2>
-            <div className="space-y-1 text-sm">
+            <div className="text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Email</span>
                 <span className="text-foreground font-mono text-xs">{user?.email}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Имя</span>
-                {editingName ? (
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      value={nameInput}
-                      onChange={e => setNameInput(e.target.value)}
-                      className="bg-background/60 border border-border rounded-lg px-2 py-1 text-xs text-foreground font-kelly w-28 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                      maxLength={20}
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => {
-                        const trimmed = nameInput.trim();
-                        if (trimmed.length < 1) { toast.error('Имя не может быть пустым'); return; }
-                        setUsername(trimmed);
-                        setEditingName(false);
-                        toast.success('Имя изменено!');
-                      }}
-                      className="text-xs font-kelly text-primary hover:text-primary/80 min-h-[32px] px-2"
-                    >✓</button>
-                    <button
-                      onClick={() => { setNameInput(player.username); setEditingName(false); }}
-                      className="text-xs font-kelly text-muted-foreground hover:text-foreground min-h-[32px] px-1"
-                    >✕</button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => { setNameInput(player.username); setEditingName(true); }}
-                    className="flex items-center gap-1.5 text-foreground font-kelly hover:text-primary transition-colors"
-                  >
-                    {player.username} <span className="text-xs text-muted-foreground">✏️</span>
-                  </button>
-                )}
-              </div>
             </div>
+          </div>
+
+          {/* Avatar */}
+          <AvatarPicker />
+
+          {/* Account name */}
+          <div className="bg-surface/50 backdrop-blur-sm rounded-xl p-4 card-lubok border border-border/30">
+            <h2 className="font-kelly text-sm text-muted-foreground mb-2">Имя аккаунта</h2>
+            {editingName ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={nameInput}
+                  onChange={e => setNameInput(e.target.value)}
+                  className="bg-background/60 border border-border rounded-lg px-2 py-1.5 text-sm text-foreground font-kelly w-full focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  maxLength={20}
+                  autoFocus
+                />
+                <button
+                  onClick={() => {
+                    const trimmed = nameInput.trim();
+                    if (trimmed.length < 1) { toast.error('Имя не может быть пустым'); return; }
+                    setUsername(trimmed);
+                    setEditingName(false);
+                    toast.success('Имя изменено!');
+                  }}
+                  className="text-xs font-kelly text-primary hover:text-primary/80 min-h-[32px] px-2"
+                >✓</button>
+                <button
+                  onClick={() => { setNameInput(player.username); setEditingName(false); }}
+                  className="text-xs font-kelly text-muted-foreground hover:text-foreground min-h-[32px] px-1"
+                >✕</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setNameInput(player.username); setEditingName(true); }}
+                className="flex items-center gap-2 text-foreground font-kelly text-base hover:text-primary transition-colors"
+              >
+                {player.username} <span className="text-xs text-muted-foreground">✏️</span>
+              </button>
+            )}
+            <p className="text-[10px] text-muted-foreground mt-2">
+              Это имя отображается в Колизее, рейтингах и у других игроков
+            </p>
           </div>
 
           {/* Save status */}
@@ -92,6 +102,40 @@ export default function SettingsPage() {
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
               Прогресс автоматически сохраняется в облако
+            </p>
+          </div>
+
+          {/* Version & Cache */}
+          <div className="bg-surface/50 backdrop-blur-sm rounded-xl p-4 card-lubok border border-border/30">
+            <h2 className="font-kelly text-sm text-muted-foreground mb-2">Версия приложения</h2>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-foreground font-mono text-xs">v{APP_VERSION}</span>
+              <button
+                onClick={async () => {
+                  try {
+                    // Clear all caches
+                    if ('caches' in window) {
+                      const names = await caches.keys();
+                      await Promise.all(names.map(n => caches.delete(n)));
+                    }
+                    // Unregister service workers
+                    if ('serviceWorker' in navigator) {
+                      const regs = await navigator.serviceWorker.getRegistrations();
+                      await Promise.all(regs.map(r => r.unregister()));
+                    }
+                    toast.success('Кеш очищен! Перезагрузка...');
+                    setTimeout(() => window.location.reload(), 1000);
+                  } catch {
+                    toast.error('Ошибка очистки кеша');
+                  }
+                }}
+                className="text-xs font-kelly text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-all border border-primary/20 min-h-[32px]"
+              >
+                🔄 Обновить версию
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1.5">
+              Нажми «Обновить версию» если на телефоне старая версия игры
             </p>
           </div>
 

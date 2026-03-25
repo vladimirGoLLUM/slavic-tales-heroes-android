@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/context/GameContext';
@@ -16,9 +16,11 @@ import {
 } from '@/data/arenaData';
 import { ARTIFACT_RARITY_COLORS } from '@/data/artifacts';
 import iconSouls from '@/assets/icons/icon_souls.png';
-import { ELEMENT_ICONS } from '@/data/gameData';
+import { ELEMENT_ICONS, RARITY_COLORS, type Champion, type Skill } from '@/data/gameData';
 import { supabase } from '@/integrations/supabase/client';
 import QuickBuyButton from '@/components/game/QuickBuyButton';
+import PlayerAvatar from '@/components/game/PlayerAvatar';
+import SquadPickerModal from '@/components/game/SquadPickerModal';
 
 import coinGodsImg from '@/assets/icons/coin-gods.png';
 import coinYariloImg from '@/assets/icons/coin-yarilo.png';
@@ -40,6 +42,7 @@ interface LeaderboardEntry {
   username: string;
   arena_rating: number;
   arena_power: number;
+  avatar_url?: string | null;
   isPlayer?: boolean;
 }
 
@@ -90,6 +93,12 @@ function getTimeAgo(dateStr: string): string {
   return `${days} дн. назад`;
 }
 
+interface SquadHeroSnap {
+  name: string;
+  element: string;
+  imageUrl: string;
+}
+
 interface BattleHistoryEntry {
   id: string;
   attacker_name: string;
@@ -99,7 +108,9 @@ interface BattleHistoryEntry {
   rating_change: number;
   result: string;
   created_at: string;
-  isAttacker: boolean; // true = player attacked, false = player was attacked
+  isAttacker: boolean;
+  attacker_squad?: SquadHeroSnap[];
+  defender_squad?: SquadHeroSnap[];
 }
 
 export default function ArenaPage() {
@@ -108,7 +119,7 @@ export default function ArenaPage() {
   const {
     player, getFullStats, getSquadChampions,
     arenaState, refreshArenaOpponents, markArenaOpponentDefeated, spendGodsCoins,
-    claimDailyArenaReward,
+    claimDailyArenaReward, claimWeeklyArenaReward, saveArenaSquad, setActiveSquad, isVipActive,
   } = useGame();
 
   const [tab, setTab] = useState<'arena' | 'leaderboard' | 'history'>('arena');
@@ -116,6 +127,9 @@ export default function ArenaPage() {
   const [loadingLb, setLoadingLb] = useState(false);
   const [battleHistory, setBattleHistory] = useState<BattleHistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [inspectOpponent, setInspectOpponent] = useState<ArenaOpponent | null>(null);
+  const [showSquadPicker, setShowSquadPicker] = useState(false);
+  const pendingFightOpponent = useRef<ArenaOpponent | null>(null);
 
   const rank = getRankFromRating(arenaState.arenaRating);
   const tierInfo = ARENA_TIERS.find(t => t.tier === rank.tier) ?? ARENA_TIERS[0];
@@ -133,7 +147,7 @@ export default function ArenaPage() {
     setLoadingLb(true);
     supabase
       .from('arena_leaderboard')
-      .select('id, username, arena_rating, arena_power')
+      .select('id, username, arena_rating, arena_power, avatar_url')
       .order('arena_rating', { ascending: false })
       .limit(100)
       .then(({ data }) => {
@@ -171,7 +185,7 @@ export default function ArenaPage() {
       .select('*')
       .or(`attacker_id.eq.${user.id},defender_id.eq.${user.id}`)
       .order('created_at', { ascending: false })
-      .limit(50)
+      .limit(20)
       .then(({ data }) => {
         const entries: BattleHistoryEntry[] = (data ?? []).map((d: any) => ({
           ...d,
@@ -221,10 +235,9 @@ export default function ArenaPage() {
     refreshArenaOpponents();
   }, [refreshArenaOpponents]);
 
-  const handleFight = useCallback((opponent: ArenaOpponent) => {
-    // Spend 1 Gods Coin per fight
+  const executeFight = useCallback((opponent: ArenaOpponent) => {
     if (!spendGodsCoins(1)) return;
-    // Store arena battle data in sessionStorage
+    saveArenaSquad();
     sessionStorage.setItem('arenaBattle', JSON.stringify({
       opponentId: opponent.id,
       opponentName: opponent.name,
@@ -232,7 +245,23 @@ export default function ArenaPage() {
       enemies: opponent.heroes,
     }));
     navigate('/battle?mode=arena');
-  }, [navigate, spendGodsCoins]);
+  }, [navigate, spendGodsCoins, saveArenaSquad]);
+
+  const handleFight = useCallback((opponent: ArenaOpponent) => {
+    pendingFightOpponent.current = opponent;
+    setShowSquadPicker(true);
+  }, []);
+
+  const handleSquadConfirmArena = useCallback((squadId: number) => {
+    setActiveSquad(squadId);
+    setShowSquadPicker(false);
+    setTimeout(() => {
+      if (pendingFightOpponent.current) {
+        executeFight(pendingFightOpponent.current);
+        pendingFightOpponent.current = null;
+      }
+    }, 0);
+  }, [setActiveSquad, executeFight]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -421,24 +450,34 @@ export default function ArenaPage() {
               }`}
             >
               <div className="flex items-center gap-3">
-                {/* Heroes preview */}
-                <div className="flex -space-x-2 flex-shrink-0">
+                {/* Heroes preview with element badges — tap to inspect */}
+                <button
+                  onClick={() => setInspectOpponent(opp)}
+                  className="flex -space-x-1 flex-shrink-0 cursor-pointer hover:opacity-80 active:scale-95 transition-all"
+                  title="Посмотреть отряд"
+                >
                   {opp.heroes.slice(0, 4).map((hero, hi) => (
                     <div
                       key={hi}
-                      className="w-10 h-10 rounded-lg overflow-hidden border-2 border-surface"
+                      className="relative w-11 h-11 rounded-lg overflow-visible"
                     >
-                      <img
-                        src={hero.imageUrl}
-                        alt={hero.name}
-                        className="w-full h-full object-cover object-top"
-                        loading="lazy"
-                      />
+                      <div className="w-11 h-11 rounded-lg overflow-hidden border-2 border-surface shadow-sm">
+                        <img
+                          src={hero.imageUrl}
+                          alt={hero.name}
+                          className="w-full h-full object-cover object-top"
+                          loading="lazy"
+                        />
+                      </div>
+                      <span className="absolute -bottom-1 -right-1 text-[10px] leading-none bg-surface/90 rounded-full w-4 h-4 flex items-center justify-center border border-border/40">
+                        {ELEMENT_ICONS[hero.element]}
+                      </span>
                     </div>
                   ))}
-                </div>
+                </button>
 
-                {/* Info */}
+                {/* Avatar + Info */}
+                <PlayerAvatar src={opp.avatarUrl} size={28} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-kelly text-sm text-foreground truncate">{opp.name}</span>
@@ -447,11 +486,6 @@ export default function ArenaPage() {
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span>⚔️ {opp.power.toLocaleString()}</span>
                     <span>🏆 {opp.rating}</span>
-                  </div>
-                  <div className="flex gap-1 mt-0.5">
-                    {opp.heroes.map((h, hi) => (
-                      <span key={hi} className="text-[10px]">{ELEMENT_ICONS[h.element]}</span>
-                    ))}
                   </div>
                 </div>
 
@@ -522,6 +556,30 @@ export default function ArenaPage() {
               );
             })()}
 
+            {/* Pending weekly reward claim banner */}
+            {arenaState.pendingWeeklyReward && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-yellow-500/15 border-2 border-yellow-500/50 rounded-xl p-4 mb-4"
+              >
+                <div className="text-sm font-kelly text-yellow-400 mb-2">🏆 Недельная награда готова! ({arenaState.pendingWeeklyReward.tierLabel})</div>
+                <div className="flex gap-3 text-xs font-mono flex-wrap mb-3">
+                  {arenaState.pendingWeeklyReward.souls > 0 && <span className="text-primary inline-flex items-center gap-0.5"><img src={iconSouls} alt="Души" className="w-4 h-4 shrink-0" /> {arenaState.pendingWeeklyReward.souls}</span>}
+                  {arenaState.pendingWeeklyReward.runes > 0 && <span className="text-foreground inline-flex items-center gap-0.5"><img src="/ui/icon_runes.png" alt="Руны" className="w-4 h-4 shrink-0" /> {arenaState.pendingWeeklyReward.runes}</span>}
+                  {arenaState.pendingWeeklyReward.mithrilRunes > 0 && <span className="text-foreground inline-flex items-center gap-0.5"><img src="/ui/icon_mithril.png" alt="МР" className="w-4 h-4 shrink-0" /> {arenaState.pendingWeeklyReward.mithrilRunes}</span>}
+                  <span className="text-foreground inline-flex items-center gap-0.5"><img src={coinGodsImg} alt="Монеты Богов" className="w-4 h-4 shrink-0" /> {arenaState.pendingWeeklyReward.godsCoins}</span>
+                  {arenaState.pendingWeeklyReward.artifacts.length > 0 && <span className="text-foreground">🎁 {arenaState.pendingWeeklyReward.artifacts.length} арт.</span>}
+                </div>
+                <button
+                  onClick={() => claimWeeklyArenaReward()}
+                  className="w-full py-2.5 bg-yellow-500 hover:bg-yellow-400 text-background font-kelly rounded-lg transition-all hover:scale-[1.02] active:scale-95"
+                >
+                  Забрать награду
+                </button>
+              </motion.div>
+            )}
+
             {/* Weekly prize banner */}
             {(() => {
               const reward = WEEKLY_ARENA_REWARDS[rank.tier];
@@ -590,6 +648,7 @@ export default function ArenaPage() {
             <div className="bg-primary/10 border border-primary/30 rounded-xl p-3 mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-kelly text-primary text-lg">#{playerPosition}</span>
+                <PlayerAvatar size={28} isVip={isVipActive()} />
                 <span className="font-kelly text-foreground text-sm">{player.username || 'Ты'}</span>
               </div>
               <div className="text-right">
@@ -621,7 +680,8 @@ export default function ArenaPage() {
                       {pos <= 3 ? ['🥇', '🥈', '🥉'][pos - 1] : `#${pos}`}
                     </div>
 
-                    {/* Name */}
+                    {/* Avatar + Name */}
+                    <PlayerAvatar src={entry.avatar_url} size={28} isVip={entry.isPlayer ? isVipActive() : false} />
                     <div className="flex-1 min-w-0">
                       <span className={`font-kelly text-sm truncate block ${entry.isPlayer ? 'text-primary' : 'text-foreground'}`}>
                         {entry.username}
@@ -663,10 +723,12 @@ export default function ArenaPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {battleHistory.map((entry, i) => {
+                {battleHistory.slice(0, 20).map((entry, i) => {
                   const isWin = entry.result === 'win';
                   const wasAttacked = !entry.isAttacker;
                   const timeAgo = getTimeAgo(entry.created_at);
+                  // Show opponent's squad (if attacker, show defender squad; if defender, show attacker squad)
+                  const opponentSquad = wasAttacked ? (entry.attacker_squad ?? []) : (entry.defender_squad ?? []);
 
                   return (
                     <motion.div
@@ -683,7 +745,7 @@ export default function ArenaPage() {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {/* Icon */}
+                        {/* Result icon */}
                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg flex-shrink-0 ${
                           wasAttacked
                             ? 'bg-accent/20'
@@ -710,8 +772,33 @@ export default function ArenaPage() {
                           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                             <span>{timeAgo}</span>
                             <span>•</span>
-                            <span>Рейтинг: {entry.attacker_rating}</span>
+                            <span>🏆 {wasAttacked ? entry.attacker_rating : entry.defender_rating}</span>
                           </div>
+
+                          {/* Opponent squad heroes */}
+                          {opponentSquad.length > 0 && (
+                            <div className="flex -space-x-1 mt-1.5">
+                              {opponentSquad.slice(0, 4).map((hero, hi) => (
+                                <div
+                                  key={hi}
+                                  className="relative w-8 h-8 rounded-md overflow-visible"
+                                  title={`${hero.name} (${hero.element})`}
+                                >
+                                  <div className="w-8 h-8 rounded-md overflow-hidden border border-border/40">
+                                    <img
+                                      src={hero.imageUrl}
+                                      alt={hero.name}
+                                      className="w-full h-full object-cover object-top"
+                                      loading="lazy"
+                                    />
+                                  </div>
+                                  <span className="absolute -bottom-0.5 -right-0.5 text-[8px] leading-none bg-surface/90 rounded-full w-3.5 h-3.5 flex items-center justify-center border border-border/30">
+                                    {ELEMENT_ICONS[hero.element as keyof typeof ELEMENT_ICONS] ?? '?'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         {/* Result */}
@@ -740,6 +827,143 @@ export default function ArenaPage() {
           </motion.div>
         )}
       </div>
+
+      {/* Opponent Inspect Modal */}
+      <AnimatePresence>
+        {inspectOpponent && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm"
+            onClick={() => setInspectOpponent(null)}
+          >
+            <motion.div
+              initial={{ y: 100, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 100, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-surface border border-border/50 rounded-t-2xl sm:rounded-2xl p-4 shadow-xl"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">⚔️</span>
+                  <div>
+                    <h2 className="font-kelly text-lg text-foreground">{inspectOpponent.name}</h2>
+                    <div className="text-xs text-muted-foreground">
+                      🏆 {inspectOpponent.rating} очей · ⚔️ {inspectOpponent.power.toLocaleString()} сила
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setInspectOpponent(null)}
+                  className="w-8 h-8 rounded-full bg-muted/30 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Heroes */}
+              <div className="space-y-3">
+                {inspectOpponent.heroes.map((hero, hi) => {
+                  const s = hero.baseStats;
+                  return (
+                    <div
+                      key={hi}
+                      className="bg-background/50 rounded-xl p-3 border border-border/30"
+                    >
+                      <div className="flex items-start gap-3">
+                        {/* Portrait */}
+                        <div className="relative w-16 h-16 rounded-xl overflow-visible flex-shrink-0">
+                          <div className="w-16 h-16 rounded-xl overflow-hidden border-2 border-border/40">
+                            <img
+                              src={hero.imageUrl}
+                              alt={hero.name}
+                              className="w-full h-full object-cover object-top"
+                            />
+                          </div>
+                          <span className="absolute -bottom-1 -right-1 text-xs bg-surface/90 rounded-full w-5 h-5 flex items-center justify-center border border-border/40">
+                            {ELEMENT_ICONS[hero.element]}
+                          </span>
+                        </div>
+
+                        {/* Name & rarity */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`font-kelly text-sm ${RARITY_COLORS[hero.rarity] ? `text-${RARITY_COLORS[hero.rarity]}` : 'text-foreground'}`}>
+                              {hero.name}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">{hero.rarity}</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground mb-1">
+                            {hero.element} · {hero.faction}
+                          </div>
+
+                          {/* Stats grid */}
+                          <div className="grid grid-cols-4 gap-x-2 gap-y-0.5 text-[10px]">
+                            <span className="text-muted-foreground">❤️ {s.hp.toLocaleString()}</span>
+                            <span className="text-muted-foreground">⚔️ {s.atk.toLocaleString()}</span>
+                            <span className="text-muted-foreground">🛡️ {s.def.toLocaleString()}</span>
+                            <span className="text-muted-foreground">💨 {s.spd}</span>
+                            <span className="text-muted-foreground">🎯 {s.critChance}%</span>
+                            <span className="text-muted-foreground">💥 {s.critDmg}%</span>
+                            <span className="text-muted-foreground">🔰 {s.resistance}</span>
+                            <span className="text-muted-foreground">📍 {s.accuracy}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Skills */}
+                      {hero.skills && hero.skills.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {hero.skills.map((skill, si) => {
+                            const typeIcons: Record<string, string> = {
+                              damage: '⚔️', aoe: '💥', buff: '✨', debuff: '🔻',
+                              heal: '💚', control: '🔗', special: '⭐', passive: '🔮',
+                            };
+                            return (
+                              <div key={si} className="bg-muted/20 rounded-lg px-2 py-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px]">{typeIcons[skill.type] ?? '⚔️'}</span>
+                                  <span className="font-kelly text-[11px] text-foreground">{skill.name}</span>
+                                  {skill.cooldown > 0 && (
+                                    <span className="text-[9px] text-muted-foreground ml-auto">⏱️ {skill.cooldown} хода</span>
+                                  )}
+                                </div>
+                                <p className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{skill.description}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Fight button */}
+              {!inspectOpponent.defeated && squad.length > 0 && actualGodsCoins > 0 && (
+                <button
+                  onClick={() => {
+                    handleFight(inspectOpponent);
+                    setInspectOpponent(null);
+                  }}
+                  className="w-full mt-4 py-3 bg-accent hover:bg-accent/90 text-accent-foreground font-kelly rounded-xl text-sm transition-all hover:scale-[1.02] active:scale-95"
+                >
+                  ⚔️ В бой!
+                </button>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <SquadPickerModal
+        open={showSquadPicker}
+        onClose={() => { setShowSquadPicker(false); pendingFightOpponent.current = null; }}
+        onConfirm={handleSquadConfirmArena}
+      />
     </div>
   );
 }

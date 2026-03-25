@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { Lock, Unlock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGame } from '@/context/GameContext';
+import TutorialGlow from '@/components/game/TutorialGlow';
 import {
   type Artifact, type ArtifactSlot, type ArtifactSet, type ArtifactRarity,
   ALL_SLOTS, ALL_SETS, ALL_ARTIFACT_RARITIES,
@@ -11,18 +13,20 @@ import {
   STAT_LABELS, formatStatValue,
   getUnlockedSubstats, getLockedSubstats, getArtifactUpgradeCost, MAX_ARTIFACT_LEVEL,
   levelUpArtifact as levelUpArtifactFn, getSubstatDisplayValue, MAX_ARTIFACT_STARS,
-  getArtifactSellPrice,
+  getArtifactSellPrice, getFurnaceBoostedPrimaryValue, FURNACE_BOSS_COLORS,
 } from '@/data/artifacts';
 import SlotIcon from '@/components/game/SlotIcon';
 import ArtifactIcon from '@/components/game/ArtifactIcon';
 import SetIcon from '@/components/game/SetIcon';
 import StarDisplay from '@/components/game/StarDisplay';
+import FurnaceFlames from '@/components/game/FurnaceFlames';
 import { toast } from 'sonner';
 
 export default function InventoryPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { player, sellArtifacts, toggleArtifactLock } = useGame();
+  const { player, sellArtifacts, toggleArtifactLock, advanceTutorial } = useGame();
+  const tutStep = player.tutorialStep ?? 99;
   const [filterSlot, setFilterSlot] = useState<ArtifactSlot | null>(null);
   const [filterSet, setFilterSet] = useState<ArtifactSet | null>(null);
   const [filterRarity, setFilterRarity] = useState<ArtifactRarity | null>(null);
@@ -95,9 +99,10 @@ export default function InventoryPage() {
 
       <div className="relative z-10 px-3 sm:px-4 pt-6 sm:pt-8 max-w-5xl mx-auto">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => navigate('/')} className="text-muted-foreground hover:text-foreground text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">←</button>
+          <button onClick={() => navigate('/ancient-forge')} className="text-muted-foreground hover:text-foreground text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">←</button>
+          <img src="/ui/icon_treasury.png" alt="" className="w-8 h-8 object-contain" />
           <motion.h1 initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-2xl sm:text-3xl font-kelly text-primary text-gold-glow">
-            🏺 Сокровищница
+            Сокровищница
           </motion.h1>
         </div>
         <p className="text-center text-muted-foreground text-sm mb-2">
@@ -107,16 +112,23 @@ export default function InventoryPage() {
         {/* Sell mode toggle */}
         {player.artifacts.length > 0 && (
           <div className="flex justify-center gap-2 mb-3">
-            <button
-              onClick={() => { setSellMode(!sellMode); setSellSelected(new Set()); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-kelly transition-all border min-h-[36px] ${
-                sellMode
-                  ? 'bg-destructive/20 border-destructive/50 text-destructive'
-                  : 'bg-surface/40 border-border/30 text-muted-foreground'
-              }`}
-            >
-              {sellMode ? '✕ Отмена' : '💰 Продать'}
-            </button>
+            <div className="relative">
+              {tutStep === 49 && !sellMode && <TutorialGlow wide label="Нажми «Продать» чтобы войти в режим продажи." rounded="rounded-lg" />}
+              <button
+                onClick={() => {
+                  setSellMode(!sellMode);
+                  setSellSelected(new Set());
+                  if (tutStep === 49 && !sellMode) advanceTutorial(49);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-kelly transition-all border min-h-[36px] ${
+                  sellMode
+                    ? 'bg-destructive/20 border-destructive/50 text-destructive'
+                    : 'bg-surface/40 border-border/30 text-muted-foreground'
+                }`}
+              >
+                {sellMode ? '✕ Отмена' : '💰 Продать'}
+              </button>
+            </div>
             {sellMode && (
               <>
                 <button
@@ -138,7 +150,7 @@ export default function InventoryPage() {
 
         {/* Filters */}
         <div className="space-y-2 mb-4">
-          <div className="overflow-x-auto -mx-3 px-3">
+          <DragScroll className="-mx-3 px-3">
             <div className="flex gap-1.5">
               {ALL_SLOTS.map(slot => (
                 <button
@@ -154,9 +166,9 @@ export default function InventoryPage() {
                 </button>
               ))}
             </div>
-          </div>
+          </DragScroll>
 
-          <div className="overflow-x-auto -mx-3 px-3">
+          <DragScroll className="-mx-3 px-3">
             <div className="flex gap-1.5">
               {ALL_SETS.map(set => (
                 <button
@@ -172,9 +184,9 @@ export default function InventoryPage() {
                 </button>
               ))}
             </div>
-          </div>
+          </DragScroll>
 
-          <div className="overflow-x-auto -mx-3 px-3">
+          <DragScroll className="-mx-3 px-3">
             <div className="flex gap-1.5">
               {ALL_ARTIFACT_RARITIES.map(r => (
                 <button
@@ -190,7 +202,7 @@ export default function InventoryPage() {
                 </button>
               ))}
             </div>
-          </div>
+          </DragScroll>
 
           {hasFilters && (
             <button
@@ -249,7 +261,8 @@ export default function InventoryPage() {
       {/* Sell bar */}
       {sellMode && sellSelected.size > 0 && (
         <div className="fixed bottom-20 left-0 right-0 z-40 px-4">
-          <div className="max-w-md mx-auto bg-card border border-destructive/30 rounded-2xl p-3 flex items-center justify-between shadow-lg">
+          <div className="relative max-w-md mx-auto bg-card border border-destructive/30 rounded-2xl p-3 flex items-center justify-between shadow-lg">
+            {tutStep === 50 && <TutorialGlow wide label="Выбери ненужный предмет и подтверди — получишь Души!" rounded="rounded-2xl" />}
             <div>
               <span className="text-xs text-muted-foreground font-kelly">Выбрано: {sellSelected.size}</span>
               <div className="text-sm font-mono text-primary flex items-center gap-1"><img src="/ui/icon_runes.png" alt="Руны" className="w-4 h-4" /> +{sellTotal} Рун</div>
@@ -324,6 +337,9 @@ function InventoryArtifactCard({ artifact, isEquipped, index, sellMode, isSelect
         <div className="flex flex-col items-center shrink-0">
           <ArtifactIcon slot={artifact.slot} set={artifact.set} size={32} />
           <StarDisplay stars={artifact.stars} size="xs" className="mt-0.5" />
+          {(artifact.furnaceLevel ?? 0) > 0 && (
+            <FurnaceFlames furnaceLevel={artifact.furnaceLevel ?? 0} furnaceBossId={artifact.furnaceBossId} size="xs" />
+          )}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -339,7 +355,7 @@ function InventoryArtifactCard({ artifact, isEquipped, index, sellMode, isSelect
 
           {/* Primary stat */}
           <div className="text-[9px] font-mono text-primary mt-0.5">
-            +{formatStatValue(artifact.primaryValue, artifact.primaryType)} {STAT_LABELS[artifact.primaryStat]}
+            +{formatStatValue(getFurnaceBoostedPrimaryValue(artifact), artifact.primaryType)} {STAT_LABELS[artifact.primaryStat]}
           </div>
 
           {/* Substats */}
@@ -441,7 +457,7 @@ function ArtifactDetailModal({ artifact, isEquipped, onClose, onEquip, onToggleL
         <div className="bg-background/40 rounded-xl p-3 mb-3">
           <div className="flex justify-between items-center mb-2">
             <span className="text-xs text-muted-foreground">Основной:</span>
-            <span className="font-mono text-primary font-bold text-sm">+{formatStatValue(currentArt.primaryValue, currentArt.primaryType)} {STAT_LABELS[currentArt.primaryStat]}</span>
+            <span className="font-mono text-primary font-bold text-sm">+{formatStatValue(getFurnaceBoostedPrimaryValue(currentArt), currentArt.primaryType)} {STAT_LABELS[currentArt.primaryStat]}</span>
           </div>
 
           {unlocked.length > 0 && (

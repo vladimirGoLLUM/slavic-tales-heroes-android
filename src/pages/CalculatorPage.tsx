@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CHAMPIONS, ELEMENT_ICONS, type Champion } from '@/data/gameData';
 import { calculateDamage, type CombatResult } from '@/utils/combat';
 import { updateCooldowns, applyCooldown, type BattleUnit } from '@/ai/enemyAI';
-import { applyEffect, processEffects, isCC, cleanse, applyDamageWithShield, tickCCEffects, hasEffect } from '@/utils/effects';
-import { EFFECT_ICONS, EFFECT_NAMES, isBuffType } from '@/types/game';
+import { applyEffect, processEffects, isCC, cleanse, applyDamageWithShield, tickCCEffects, hasEffect, getStatMultiplier } from '@/utils/effects';
+import { EFFECT_ICONS, EFFECT_NAMES, isBuffType, isDebuffType } from '@/types/game';
 import EffectIcon from '@/components/game/EffectIcon';
 import type { EffectApplication, StatusEffect } from '@/types/game';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -291,7 +292,8 @@ export default function CalculatorPage() {
     attackerIdx: number,
     defenderIdx: number,
     currentUnits: BattleUnit[],
-    logFn: (msg: string, type: BattleLogEntry['type']) => void
+    logFn: (msg: string, type: BattleLogEntry['type']) => void,
+    isGlancing: boolean = false,
   ): BattleUnit[] => {
     if (!skill.effects || skill.effects.length === 0) return currentUnits;
     let updatedUnits = [...currentUnits];
@@ -346,10 +348,24 @@ export default function CalculatorPage() {
       }
 
       const targets = resolveTargets(eff, attackerIdx, defenderIdx, updatedUnits);
+      const isDebuff = isDebuffType(eff.type);
+
+      // Glancing Hit blocks ALL debuffs
+      if (isGlancing && isDebuff) {
+        for (const tIdx of targets) {
+          logFn(`⚡ ${updatedUnits[tIdx].champion.name}: слабый удар — ${EFFECT_NAMES[eff.type]} заблокирован!`, 'normal');
+        }
+        continue;
+      }
+
+      const attackerAccMult = getStatMultiplier(attacker, 'accuracy');
+      const effectiveAcc = attacker.champion.baseStats.accuracy * attackerAccMult;
       for (const tIdx of targets) {
-        const result = applyEffect(updatedUnits[tIdx], eff, attacker.id);
+        const result = applyEffect(updatedUnits[tIdx], eff, attacker.id, effectiveAcc);
         updatedUnits[tIdx] = result.unit;
-        if (result.applied) {
+        if (result.resisted) {
+          logFn(`🛡️ ${updatedUnits[tIdx].champion.name} сопротивляется: ${EFFECT_NAMES[eff.type]}!`, 'normal');
+        } else if (result.applied) {
           const icon = EFFECT_NAMES[eff.type];
           const name = EFFECT_NAMES[eff.type];
           const isBuff = isBuffType(eff.type);
@@ -401,6 +417,7 @@ export default function CalculatorPage() {
         isEnemy,
         skillCooldowns: c.skills.map(() => 0),
         effects: [],
+        turnMeter: 0,
       }));
 
     const allUnits = [...mkUnits(teamA, false), ...mkUnits(teamB, true)];
@@ -509,7 +526,7 @@ export default function CalculatorPage() {
       damageDealt: s.damageDealt + result.finalDamage,
       maxHit: Math.max(s.maxHit, result.finalDamage),
       crits: s.crits + (result.isCrit ? 1 : 0),
-      misses: s.misses + (result.isMiss ? 1 : 0),
+      misses: s.misses,
     }));
     updateStat(defender.id, s => ({ ...s, damageTaken: s.damageTaken + result.finalDamage }));
 
@@ -527,6 +544,7 @@ export default function CalculatorPage() {
         );
         const shieldResult = applyDamageWithShield(newUnits[eIdx], res.finalDamage);
         newUnits[eIdx] = shieldResult.unit;
+        if (shieldResult.wokenUp) addLog(`💤→⚡ ${enemy.champion.name} просыпается от удара!`, 'normal');
         if (shieldResult.shieldAbsorbed > 0) addLog(`🛡✨ ${enemy.champion.name}: щит поглотил ${shieldResult.shieldAbsorbed} урона`, 'buff');
         updateStat(enemy.id, s => ({ ...s, damageTaken: s.damageTaken + res.finalDamage }));
         updateStat(attacker.id, s => ({ ...s, damageDealt: s.damageDealt + res.finalDamage, maxHit: Math.max(s.maxHit, res.finalDamage) }));
@@ -544,25 +562,19 @@ export default function CalculatorPage() {
       newUnits[attackerIdx] = applyCooldown(newUnits[attackerIdx], skillIdx);
     } else {
       // Single target: damage + cooldown
-      newUnits = unitsRef.current.map((u, i) => {
-        let updated = u;
-        if (i === defenderIdx) {
-          const shieldResult = applyDamageWithShield(updated, result.finalDamage);
-          updated = shieldResult.unit;
-        }
-        if (i === attackerIdx) updated = applyCooldown(updated, skillIdx);
-        return updated;
-      });
+      newUnits = [...unitsRef.current];
+      if (defenderIdx >= 0 && defenderIdx < newUnits.length) {
+        const shieldResult = applyDamageWithShield(newUnits[defenderIdx], result.finalDamage);
+        newUnits[defenderIdx] = shieldResult.unit;
+        if (shieldResult.wokenUp) addLog(`💤→⚡ ${defender.champion.name} просыпается от удара!`, 'normal');
+      }
+      newUnits[attackerIdx] = applyCooldown(newUnits[attackerIdx], skillIdx);
     }
 
     const icon = ELEMENT_ICONS[attacker.champion.element];
-    if (result.isMiss) {
-      addLog(`${icon} ${attacker.champion.name} → ${skill.name} → ПРОМАХ!`, 'miss');
-    } else {
-      const extra = result.isCrit ? ' 💥КРИТ!' : result.elementAdvantage ? ' ✨элем.' : '';
-      addLog(`${icon} ${attacker.champion.name} → ${skill.name} → ${defender.champion.name} (-${result.finalDamage}) [${defender.champion.name}: ${Math.max(0, defender.currentHp - result.finalDamage)}/${defender.maxHp}]${extra}`,
-        result.isCrit ? 'crit' : result.elementAdvantage ? 'advantage' : 'normal');
-    }
+    const extra = result.isGlancing ? ' ⚡СЛАБЫЙ' : result.isCrit ? ' 💥КРИТ!' : result.elementAdvantage ? ' ✨элем.' : '';
+    addLog(`${icon} ${attacker.champion.name} → ${skill.name} → ${defender.champion.name} (-${result.finalDamage}) [${defender.champion.name}: ${Math.max(0, defender.currentHp - result.finalDamage)}/${defender.maxHp}]${extra}`,
+      result.isCrit ? 'crit' : result.elementAdvantage ? 'advantage' : 'normal');
 
     // Check kill
     if (newUnits[defenderIdx].currentHp <= 0 && defender.currentHp > 0) {
@@ -570,10 +582,10 @@ export default function CalculatorPage() {
       addLog(`💀 ${defender.champion.name} повержен!`, 'debuff');
     }
 
-    newUnits = applySkillEffects(skill, attackerIdx, defenderIdx, newUnits, addLog);
+    newUnits = applySkillEffects(skill, attackerIdx, defenderIdx, newUnits, addLog, result.isGlancing);
 
     // Lifesteal: check if attacker has lifesteal buff (from any source), heal for % of damage dealt
-    if (!result.isMiss && result.finalDamage > 0) {
+    if (result.finalDamage > 0) {
       const lsBuff = newUnits[attackerIdx].effects.find(e => e.type === 'lifesteal');
       if (lsBuff) {
         const healAmt = Math.floor(result.finalDamage * (lsBuff.value ?? 50) / 100);
@@ -588,7 +600,7 @@ export default function CalculatorPage() {
     }
 
     // Counterattack check
-    if (newUnits[defenderIdx].currentHp > 0 && !result.isMiss) {
+    if (newUnits[defenderIdx].currentHp > 0) {
       const hasCounter = newUnits[defenderIdx].effects.some(e => e.type === 'counterattack');
       if (hasCounter) {
         const counterSkill = newUnits[defenderIdx].champion.skills[0];
@@ -596,11 +608,16 @@ export default function CalculatorPage() {
           newUnits[defenderIdx].champion, newUnits[attackerIdx].champion, counterSkill,
           undefined, undefined, newUnits[defenderIdx], newUnits[attackerIdx]
         );
-        const counterShield = applyDamageWithShield(newUnits[attackerIdx], counterResult.finalDamage);
+        // Counterattack deals 75% of normal damage (RAID mechanic)
+        const counterDmg = Math.floor(counterResult.finalDamage * 0.75);
+        const counterShield = applyDamageWithShield(newUnits[attackerIdx], counterDmg);
         newUnits = newUnits.map((u, i) =>
           i === attackerIdx ? counterShield.unit : u
         );
-        addLog(`↩️ ${newUnits[defenderIdx].champion.name} контратакует ${attacker.champion.name} (-${counterResult.finalDamage})${counterResult.isCrit ? ' 💥КРИТ!' : ''}`, 'normal');
+        if (counterShield.wokenUp) addLog(`💤→⚡ ${attacker.champion.name} просыпается от контратаки!`, 'normal');
+        addLog(`↩️ ${newUnits[defenderIdx].champion.name} контратакует ${attacker.champion.name} (-${counterDmg}, 75%)${counterResult.isCrit ? ' 💥КРИТ!' : ''}`, 'normal');
+        updateStat(newUnits[defenderIdx].id, s => ({ ...s, damageDealt: s.damageDealt + counterDmg }));
+        updateStat(attacker.id, s => ({ ...s, damageTaken: s.damageTaken + counterDmg }));
       }
     }
 
@@ -729,7 +746,7 @@ export default function CalculatorPage() {
             </div>
 
             {/* Turn bar */}
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-none">
+            <DragScroll className="flex gap-2 pb-2 mb-4">
               {turnOrder.map((idx, ti) => {
                 const u = units[idx];
                 if (!u || u.currentHp <= 0) return null;
@@ -742,7 +759,7 @@ export default function CalculatorPage() {
                   </div>
                 );
               })}
-            </div>
+            </DragScroll>
 
             {/* Battlefield */}
             <div className="grid grid-rows-2 gap-6 mb-4">
@@ -872,7 +889,7 @@ export default function CalculatorPage() {
                 {/* Team A stats */}
                 <div className="mb-4">
                   <div className="text-xs font-kelly text-primary mb-2">🔵 Команда А</div>
-                  <div className="overflow-x-auto">
+                  <DragScroll>
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-muted-foreground border-b border-border/30">
@@ -906,13 +923,13 @@ export default function CalculatorPage() {
                         })}
                       </tbody>
                     </table>
-                  </div>
+                  </DragScroll>
                 </div>
 
                 {/* Team B stats */}
                 <div>
                   <div className="text-xs font-kelly text-accent mb-2">🔴 Команда Б</div>
-                  <div className="overflow-x-auto">
+                  <DragScroll>
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-muted-foreground border-b border-border/30">
@@ -943,7 +960,7 @@ export default function CalculatorPage() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </DragScroll>
                 </div>
 
                 {/* Summary */}

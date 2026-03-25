@@ -16,6 +16,7 @@ export interface BattleRewards {
   artifactRarity?: string;
   droppedArtifacts: Artifact[];
   templeRunes?: TempleRuneReward;
+  bossMaterial?: { name: string; imageUrl: string; count: number };
 }
 
 export function calculateRewards(

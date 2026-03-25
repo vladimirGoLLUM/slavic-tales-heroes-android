@@ -20,7 +20,7 @@ export function getElementMultiplier(attackerElement: Element, defenderElement: 
 export interface CombatResult {
   damage: number;
   isCrit: boolean;
-  isMiss: boolean;
+  isGlancing: boolean;
   elementMultiplier: number;
   elementAdvantage: boolean;
   finalDamage: number;
@@ -75,26 +75,79 @@ export function calculateDamage(
 
   let damage = effectiveAtk * skill.power;
 
-  const isCrit = Math.random() * 100 < effectiveCritChance;
+  // Чёрная Вдова set: count pieces
+  const beheaderCount = attackerArtifacts?.filter(a => a.set === 'Чёрная Вдова').length ?? 0;
+  const hasBeheader3 = beheaderCount >= 3;
+  const hasBeheader9 = beheaderCount >= 9;
+
+  let isCrit: boolean;
+  if (hasBeheader9) {
+    // Full set: 100% crit
+    isCrit = true;
+  } else {
+    isCrit = Math.random() * 100 < effectiveCritChance;
+    // 3-piece: 20% chance to turn non-crit into crit
+    if (!isCrit && hasBeheader3 && Math.random() < 0.20) {
+      isCrit = true;
+    }
+  }
   if (isCrit) {
     damage *= 1 + effectiveCritDmg / 100;
   }
 
   const elementMultiplier = getElementMultiplier(attacker.element, defender.element);
   const elementAdvantage = elementMultiplier > 1.0;
+  const elementDisadvantage = elementMultiplier < 1.0;
   damage *= elementMultiplier;
 
-  // Промах: меткость vs сопротивление
-  const missChance = Math.max(0, effectiveRes - effectiveAcc) * 0.5;
-  const isMiss = Math.random() * 100 < missChance;
-  if (isMiss) {
-    return { damage: 0, isCrit: false, isMiss: true, elementMultiplier, elementAdvantage, finalDamage: 0 };
+  // Glancing Hit: 30% chance when at elemental disadvantage → -30% damage, blocks debuffs
+  const isGlancing = elementDisadvantage && Math.random() < 0.3;
+  if (isGlancing) {
+    damage *= 0.7;
   }
 
+  // Тёмная: ignore % of defense
+  const defIgnore = getDarkNavkaBonus(attackerArtifacts);
+  const reducedDef = effectiveDef * (1 - defIgnore);
+
   // Защита с убывающей отдачей
-  const defReduction = effectiveDef / (effectiveDef + 150);
+  const defReduction = reducedDef / (reducedDef + 150);
   const afterDefense = damage * (1 - defReduction * 0.6);
   const finalDamage = Math.max(1, Math.floor(afterDefense));
 
-  return { damage: Math.floor(damage), isCrit, isMiss: false, elementMultiplier, elementAdvantage, finalDamage };
+  return { damage: Math.floor(damage), isCrit, isGlancing, elementMultiplier, elementAdvantage, finalDamage };
+}
+
+/**
+ * Frost Morena set helper — returns freeze chance on attack and freeze block chance
+ * based on the number of set pieces equipped.
+ */
+export function getFrostMorenaBonus(artifacts?: Artifact[]): { freezeOnAttackChance: number; freezeBlockChance: number } {
+  if (!artifacts) return { freezeOnAttackChance: 0, freezeBlockChance: 0 };
+  const count = artifacts.filter(a => a.set === 'Ледяная').length;
+  if (count >= 9) return { freezeOnAttackChance: 0.80, freezeBlockChance: 0.80 };
+  if (count >= 3) return { freezeOnAttackChance: 0.20, freezeBlockChance: 0.20 };
+  return { freezeOnAttackChance: 0, freezeBlockChance: 0 };
+}
+
+/**
+ * Дренос set helper — returns damage absorption % and regen % per turn.
+ */
+export function getDrenosIndrikBonus(artifacts?: Artifact[]): { absorbPct: number; regenPct: number } {
+  if (!artifacts) return { absorbPct: 0, regenPct: 0 };
+  const count = artifacts.filter(a => a.set === 'Дренос').length;
+  if (count >= 9) return { absorbPct: 0.40, regenPct: 0.40 };
+  if (count >= 3) return { absorbPct: 0.10, regenPct: 0.10 };
+  return { absorbPct: 0, regenPct: 0 };
+}
+
+/**
+ * Тёмная set helper — returns defense ignore percentage.
+ */
+export function getDarkNavkaBonus(artifacts?: Artifact[]): number {
+  if (!artifacts) return 0;
+  const count = artifacts.filter(a => a.set === 'Тёмная').length;
+  if (count >= 9) return 0.80;
+  if (count >= 3) return 0.25;
+  return 0;
 }

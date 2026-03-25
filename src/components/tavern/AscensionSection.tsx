@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { useGame } from '@/context/GameContext';
 import { type PlayerChampion } from '@/data/gameData';
-import { MAX_STARS, MAX_RED_STARS, getAscensionCost, ELEMENT_RUNE_KEY, ELEMENT_RUNE_NAMES, RED_STAR_BONUSES } from '@/data/upgradeData';
+import { MAX_STARS, MAX_RED_STARS, getAscensionCost, ELEMENT_RUNE_KEY, ELEMENT_RUNE_NAMES, RED_STAR_BONUSES, ASCENSION_RUNE_RARITY } from '@/data/upgradeData';
 import StarDisplay from '@/components/game/StarDisplay';
 import { toast } from 'sonner';
 
@@ -13,6 +13,14 @@ const RUNE_ICONS: Record<string, string> = {
   'Тень': '/ui/rune_shadow.png',
   'Свет': '/ui/rune_light.png',
   'Божественность': '/ui/rune_divine.png',
+};
+
+const RARITY_LABEL_COLORS: Record<string, string> = {
+  'Обиходный': 'hsl(40 10% 50%)',
+  'Заветный': 'hsl(145 50% 45%)',
+  'Сказанный': 'hsl(220 60% 60%)',
+  'Калиновый': 'hsl(280 55% 60%)',
+  'Самоцветный': 'hsl(40 85% 55%)',
 };
 
 interface AscensionSectionProps {
@@ -51,8 +59,13 @@ export default function AscensionSection({ pc }: AscensionSectionProps) {
   const elementRuneIcon = RUNE_ICONS[elementKey] ?? '';
   const divineRuneIcon = RUNE_ICONS['Божественность'];
 
-  const currentElementRunes = player.divineRunes[elementKey as keyof typeof player.divineRunes] ?? 0;
-  const currentDivineRunes = player.divineRunes['Божественность' as keyof typeof player.divineRunes] ?? 0;
+  // Use composite keys with rarity
+  const runeRarity = cost?.runeRarity ?? 'Обиходный';
+  const elementRuneKey = `${elementKey}_${runeRarity}`;
+  const divineRuneKey = `Божественность_${runeRarity}`;
+
+  const currentElementRunes = player.divineRunes[elementRuneKey as keyof typeof player.divineRunes] ?? 0;
+  const currentDivineRunes = player.divineRunes[divineRuneKey as keyof typeof player.divineRunes] ?? 0;
 
   const canAscend = cost && currentElementRunes >= cost.elementRunes && currentDivineRunes >= cost.divineRunes;
 
@@ -80,17 +93,23 @@ export default function AscensionSection({ pc }: AscensionSectionProps) {
         )}
       </div>
 
-      {/* Current bonuses */}
-      {redStars > 0 && (
-        <div className="space-y-1 mb-3">
-          {Array.from({ length: redStars }).map((_, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs">
-              <span style={{ color: '#ef4444' }}>★{i + 1}</span>
-              <span className="text-muted-foreground">{RED_STAR_BONUSES[i + 1]}</span>
+      {/* All 5 star bonuses - always visible */}
+      <div className="space-y-1 mb-3">
+        {[1, 2, 3, 4, 5].map(star => {
+          const isUnlocked = star <= redStars;
+          return (
+            <div key={star} className={`flex items-center gap-2 text-xs transition-all ${isUnlocked ? '' : 'opacity-40'}`}>
+              <span style={{ color: isUnlocked ? '#ef4444' : 'hsl(var(--muted-foreground))' }}>★{star}</span>
+              <span style={{ color: isUnlocked ? RARITY_LABEL_COLORS[ASCENSION_RUNE_RARITY[star]] : undefined }} className={isUnlocked ? 'font-semibold' : 'text-muted-foreground'}>
+                {RED_STAR_BONUSES[star]}
+              </span>
+              <span className="text-[10px] font-kelly" style={{ color: RARITY_LABEL_COLORS[ASCENSION_RUNE_RARITY[star]] }}>
+                ({ASCENSION_RUNE_RARITY[star]})
+              </span>
             </div>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
 
       {redStars >= maxRedStarsAllowed ? (
         <div className="text-center py-4">
@@ -107,6 +126,9 @@ export default function AscensionSection({ pc }: AscensionSectionProps) {
             <div className="text-xs font-kelly" style={{ color: '#ef4444' }}>
               ★{redStars + 1} — {RED_STAR_BONUSES[redStars + 1]}
             </div>
+            <div className="text-[10px] mt-0.5 font-kelly" style={{ color: RARITY_LABEL_COLORS[runeRarity] }}>
+              Требуются руны качества: {runeRarity}
+            </div>
           </div>
 
           {/* Cost display */}
@@ -115,6 +137,7 @@ export default function AscensionSection({ pc }: AscensionSectionProps) {
               <img src={elementRuneIcon} alt={elementRuneName} className="w-6 h-6" />
               <div className="text-xs">
                 <div className="font-kelly text-foreground truncate">{elementRuneName}</div>
+                <div className="text-[10px] font-kelly" style={{ color: RARITY_LABEL_COLORS[runeRarity] }}>{runeRarity}</div>
                 <div className="font-mono">
                   <span className={currentElementRunes >= cost.elementRunes ? 'text-primary' : 'text-accent'}>
                     {currentElementRunes}
@@ -127,6 +150,7 @@ export default function AscensionSection({ pc }: AscensionSectionProps) {
               <img src={divineRuneIcon} alt="Руна Божественности" className="w-6 h-6" />
               <div className="text-xs">
                 <div className="font-kelly text-foreground truncate">Руна Божеств.</div>
+                <div className="text-[10px] font-kelly" style={{ color: RARITY_LABEL_COLORS[runeRarity] }}>{runeRarity}</div>
                 <div className="font-mono">
                   <span className={currentDivineRunes >= cost.divineRunes ? 'text-primary' : 'text-accent'}>
                     {currentDivineRunes}

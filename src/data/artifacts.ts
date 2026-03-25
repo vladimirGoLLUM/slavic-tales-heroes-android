@@ -29,7 +29,15 @@ export type ArtifactSet =
   | 'Крик Леля'
   | 'Зов Перуна'
   | 'Гнев Гидры'
-  | 'Клыки Цербера';
+  | 'Клыки Цербера'
+  | 'Чёрная Вдова'
+  | 'Каменный Жук'
+  | 'Огненный Змей'
+  | 'Ледяная'
+  | 'Небесный'
+  | 'Дренос'
+  | 'Боммал'
+  | 'Тёмная';
 
 export type ArtifactRarity = 'Обиходный' | 'Заветный' | 'Сказанный' | 'Калиновый' | 'Самоцветный';
 
@@ -75,6 +83,89 @@ export interface Artifact {
   substats: SubstatEntry[];
   imageUrl?: string;
   locked?: boolean;
+  furnaceLevel?: number; // 0-10, enhancement from Горнило
+  furnaceBossId?: string; // which boss material was used for furnace
+}
+
+/** Boss-specific furnace flame colors (HSL) */
+export const FURNACE_BOSS_COLORS: Record<string, string> = {
+  'widow':  'hsl(280, 70%, 60%)',  // purple — Мара
+  'scarab': 'hsl(35, 80%, 55%)',   // amber — Кощей
+  'dragon': 'hsl(10, 90%, 55%)',   // red-orange — Горыныч
+  'frost':  'hsl(195, 85%, 60%)',  // ice blue — Морена
+  'griffin': 'hsl(50, 90%, 65%)',  // golden — Симург
+  'ancient': 'hsl(130, 60%, 50%)', // green — Индрик
+  'golem':  'hsl(25, 65%, 45%)',   // brown — Чудище
+  'fairy':  'hsl(270, 50%, 50%)',  // dark violet — Навка
+};
+
+/** Boss ID → set name mapping (duplicated here to avoid circular import from abyssData) */
+const FURNACE_BOSS_SET_MAP: Record<string, string> = {
+  'widow': 'Чёрная Вдова',
+  'scarab': 'Каменный Жук',
+  'dragon': 'Огненный Змей',
+  'frost': 'Ледяная',
+  'griffin': 'Небесный',
+  'ancient': 'Дренос',
+  'golem': 'Боммал',
+  'fairy': 'Тёмная',
+};
+
+/* ─── Furnace (Горнило) upgrade constants ─── */
+export const MAX_FURNACE_LEVEL = 10;
+
+/** Material cost per furnace level (1-indexed: level 1 costs FURNACE_COSTS[0]) */
+export const FURNACE_COSTS: number[] = [1, 1, 2, 2, 3, 3, 4, 5, 6, 8];
+
+/** Matching set bonus per furnace level: +5% primary stat per level */
+export const FURNACE_MATCHING_BONUS = 0.05;
+/** Non-matching bonus per level: +3% primary stat per level */
+export const FURNACE_GENERIC_BONUS = 0.03;
+
+/** Get total furnace primary stat multiplier */
+export function getFurnaceMultiplier(artifact: Artifact, isMatchingSet: boolean): number {
+  const level = artifact.furnaceLevel ?? 0;
+  if (level === 0) return 1;
+  const bonusPerLevel = isMatchingSet ? FURNACE_MATCHING_BONUS : FURNACE_GENERIC_BONUS;
+  return 1 + level * bonusPerLevel;
+}
+
+function isFurnaceMatchingSet(artifact: Artifact): boolean {
+  if (!artifact.furnaceBossId) return false;
+  const bossSet = FURNACE_BOSS_SET_MAP[artifact.furnaceBossId];
+  return !!bossSet && bossSet === artifact.set;
+}
+
+/** Get final furnace multiplier for artifact.
+ * Legacy artifacts (with level but without furnaceBossId) use generic bonus by default. */
+export function getArtifactFurnaceMultiplier(artifact: Artifact): number {
+  const level = artifact.furnaceLevel ?? 0;
+  if (level <= 0) return 1;
+  return getFurnaceMultiplier(artifact, isFurnaceMatchingSet(artifact));
+}
+
+/** Get current furnace bonus percent for UI */
+export function getArtifactFurnaceBonusPercent(artifact: Artifact): number {
+  const level = artifact.furnaceLevel ?? 0;
+  if (level <= 0) return 0;
+  const perLevel = isFurnaceMatchingSet(artifact) ? FURNACE_MATCHING_BONUS : FURNACE_GENERIC_BONUS;
+  return Math.round(level * perLevel * 100);
+}
+
+/** Get furnace-boosted primary value for display */
+export function getFurnaceBoostedPrimaryValue(artifact: Artifact): number {
+  const level = artifact.furnaceLevel ?? 0;
+  if (level <= 0) return artifact.primaryValue;
+  const mult = getArtifactFurnaceMultiplier(artifact);
+  if (artifact.primaryType === 'percent') {
+    return Math.round(artifact.primaryValue * mult * 100) / 100;
+  }
+  return Math.floor(artifact.primaryValue * mult);
+}
+/** Total materials needed for next furnace level */
+export function getFurnaceCost(currentFurnaceLevel: number): number {
+  if (currentFurnaceLevel >= MAX_FURNACE_LEVEL) return Infinity;
+  return FURNACE_COSTS[currentFurnaceLevel];
 }
 
 /* ─── Slot display info ─── */
@@ -133,6 +224,14 @@ export const ALL_SETS: ArtifactSet[] = [
   'Рассечение', 'Неуязвимость', 'Контратака', 'Отравление',
   'Заморозка', 'Регенерация', 'Проклятие', 'Берсерк',
   'Воля Волхва', 'Крик Леля', 'Зов Перуна', 'Гнев Гидры', 'Клыки Цербера',
+  'Чёрная Вдова',
+  'Каменный Жук',
+  'Огненный Змей',
+  'Ледяная',
+  'Небесный',
+  'Дренос',
+  'Боммал',
+  'Тёмная',
 ];
 
 export const ALL_ARTIFACT_RARITIES: ArtifactRarity[] = [
@@ -165,6 +264,14 @@ export const SET_ICONS: Record<ArtifactSet, string> = {
   'Зов Перуна': '/sets/set_perun.png',
   'Гнев Гидры': '/sets/set_hydra.png',
   'Клыки Цербера': '/sets/set_cerberus_art.png',
+  'Чёрная Вдова': '/sets/set_beheader.png',
+  'Каменный Жук': '/sets/set_stone_beetle.png',
+  'Огненный Змей': '/sets/set_fire_serpent.png',
+  'Ледяная': '/sets/set_frost_morena.png',
+  'Небесный': '/sets/set_celestial_simurg.png',
+  'Дренос': '/sets/set_drenos_indrik.png',
+  'Боммал': '/sets/set_bommal_golem.png',
+  'Тёмная': '/sets/set_dark_navka.png',
 };
 
 /* ─── Allowed primary stats per slot ─── */
@@ -403,6 +510,38 @@ export const SET_BONUSES: Record<ArtifactSet, SetBonus[]> = {
     { pieces: 3, label: '+15% АТК, +15 СКР, +20 Метк.', stats: { atk: 0.15, spd: 15, accuracy: 20 } },
     { pieces: 9, label: '🏆 Полный сет: +10% АТК, +10 СКР, +10 Метк.', stats: { atk: 0.10, spd: 10, accuracy: 10 } },
   ],
+  'Чёрная Вдова': [
+    { pieces: 3, label: '+30% Крит. урон, 20% шанс слабого удара стать критическим', stats: { critDmg: 0.30 } },
+    { pieces: 9, label: '🏆 Полный сет: 100% Крит. шанс', stats: { critChance: 1.0 } },
+  ],
+  'Каменный Жук': [
+    { pieces: 3, label: '+40 Сопр., иммунитет на 2 хода в начале раунда', stats: { resistance: 40 } },
+    { pieces: 9, label: '🏆 Полный сет: +130 Сопр., иммунитет на 3 хода', stats: { resistance: 130 } },
+  ],
+  'Огненный Змей': [
+    { pieces: 3, label: '+20% АТК, +20% Крит. урон', stats: { atk: 0.20, critDmg: 0.20 } },
+    { pieces: 9, label: '🏆 Полный сет: +80% АТК, +80% Крит. урон', stats: { atk: 0.80, critDmg: 0.80 } },
+  ],
+  'Ледяная': [
+    { pieces: 3, label: '20% блок Заморозки, 20% шанс Заморозки при атаке', stats: {} },
+    { pieces: 9, label: '🏆 Полный сет: 80% блок и наложение Заморозки', stats: {} },
+  ],
+  'Небесный': [
+    { pieces: 3, label: '+12% Крит. урон, 30% кража жизни от урона', stats: { critDmg: 0.12, lifesteal: 30 } },
+    { pieces: 9, label: '🏆 Полный сет: +50% Крит. урон, 100% кража жизни', stats: { critDmg: 0.50, lifesteal: 100 } },
+  ],
+  'Дренос': [
+    { pieces: 3, label: 'Поглощает 10% урона союзников, +10% регенерация ЗДР/ход', stats: {} },
+    { pieces: 9, label: '🏆 Полный сет: 40% поглощение урона, 40% регенерация ЗДР/ход', stats: {} },
+  ],
+  'Боммал': [
+    { pieces: 3, label: '+50 Сопротивление, +15% Защита', stats: { resistance: 50, def: 0.15 } },
+    { pieces: 9, label: '🏆 Полный сет: +160 Сопротивление, +50% Защита', stats: { resistance: 160, def: 0.50 } },
+  ],
+  'Тёмная': [
+    { pieces: 3, label: '+10% Крит. урон, игнор. 25% защиты', stats: { critDmg: 0.10 } },
+    { pieces: 9, label: '🏆 Полный сет: +40% Крит. урон, игнор. 80% защиты', stats: { critDmg: 0.40 } },
+  ],
 };
 
 /* ─── Rarity → initial substat count (unlocked at level 0) ─── */
@@ -540,6 +679,14 @@ const SET_ADJECTIVES: Record<ArtifactSet, string[]> = {
   'Зов Перуна': ['Перунов', 'Громовой', 'Молниеносный'],
   'Гнев Гидры': ['Гидрин', 'Змеиный', 'Многоглавый'],
   'Клыки Цербера': ['Церберов', 'Адский', 'Трёхглавый'],
+  'Чёрная Вдова': ['Призрачный', 'Обезглавливающий', 'Мёртвый'],
+  'Каменный Жук': ['Каменный', 'Жуковый', 'Кощеев'],
+  'Огненный Змей': ['Горынычев', 'Пламенный', 'Змеиный'],
+  'Ледяная': ['Моренин', 'Ледяной', 'Морозный'],
+  'Небесный': ['Симургов', 'Небесный', 'Пернатый'],
+  'Дренос': ['Индриков', 'Древесный', 'Дреносов'],
+  'Боммал': ['Боммалов', 'Каменистый', 'Чудовищный'],
+  'Тёмная': ['Навкин', 'Тёмный', 'Призрачный'],
 };
 
 /* ─── Artifact generation ─── */
@@ -710,12 +857,14 @@ export function calculateArtifactStats(
   const total: ArtifactStats = {};
 
   for (const art of artifacts) {
-    // Primary stat
+    // Primary stat with furnace multiplier
+    const furnaceMult = getArtifactFurnaceMultiplier(art);
+
     if (art.primaryType === 'percent') {
       const baseVal = baseStats[art.primaryStat] ?? 0;
-      total[art.primaryStat] = (total[art.primaryStat] ?? 0) + Math.floor(baseVal * art.primaryValue / 100);
+      total[art.primaryStat] = (total[art.primaryStat] ?? 0) + Math.floor(baseVal * art.primaryValue / 100 * furnaceMult);
     } else {
-      total[art.primaryStat] = (total[art.primaryStat] ?? 0) + art.primaryValue;
+      total[art.primaryStat] = (total[art.primaryStat] ?? 0) + Math.floor(art.primaryValue * furnaceMult);
     }
 
     // Unlocked substats only
@@ -861,6 +1010,14 @@ const SET_FILE_PREFIX: Record<ArtifactSet, string> = {
   'Зов Перуна': 'perun',
   'Гнев Гидры': 'hydra',
   'Клыки Цербера': 'cerberus',
+  'Чёрная Вдова': 'beheader',
+  'Каменный Жук': 'stone_beetle',
+  'Огненный Змей': 'fire_serpent',
+  'Ледяная': 'frost_morena',
+  'Небесный': 'celestial_simurg',
+  'Дренос': 'drenos_indrik',
+  'Боммал': 'bommal_golem',
+  'Тёмная': 'dark_navka',
 };
 
 /** Get artifact image URL based on set + slot */

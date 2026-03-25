@@ -10,7 +10,7 @@ export const CERBERUS_BOSS: WorldBossData = {
   imageUrl: '/ui/icon_cerberus.png',
   bgUrl: '/ui/cerberus_bg.png',
   baseStats: {
-    hp: 999999999,
+    hp: 200000,
     atk: 1800,
     def: 250,
     spd: 100,
@@ -150,14 +150,18 @@ export function getCerberusSkillForRound(round: number): number {
   return scheduled ? scheduled.skillIndex : 0;
 }
 
-/** Scale Cerberus stats — +10% per cycle */
-export function getScaledCerberusStats(baseStats: Champion['baseStats'], cycle: number): Champion['baseStats'] {
-  const mult = 1 + cycle * 0.10;
+/** Cerberus rebirth escalation constants */
+export const CERBERUS_REBIRTH_ATK = 0.25;
+export const CERBERUS_REBIRTH_HP = 0.20;
+export const CERBERUS_REBIRTH_SPD = 0.20;
+
+/** Scale Cerberus stats after rebirth — +25% ATK, +20% HP, +20% SPD per rebirth */
+export function getScaledCerberusStats(baseStats: Champion['baseStats'], rebirth: number): Champion['baseStats'] {
   return {
-    hp: baseStats.hp,
-    atk: Math.floor(baseStats.atk * mult),
-    def: Math.floor(baseStats.def * mult),
-    spd: baseStats.spd,
+    hp: Math.floor(baseStats.hp * (1 + rebirth * CERBERUS_REBIRTH_HP)),
+    atk: Math.floor(baseStats.atk * (1 + rebirth * CERBERUS_REBIRTH_ATK)),
+    def: baseStats.def,
+    spd: Math.floor(baseStats.spd * (1 + rebirth * CERBERUS_REBIRTH_SPD)),
     critChance: baseStats.critChance,
     critDmg: baseStats.critDmg,
     resistance: baseStats.resistance,

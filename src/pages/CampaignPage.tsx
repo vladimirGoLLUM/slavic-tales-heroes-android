@@ -1,10 +1,15 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { getEnergyCost } from '@/data/gameData';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import iconSouls from '@/assets/icons/icon_souls.png';
+import XpDisplay from '@/components/game/XpDisplay';
+import SoulDisplay from '@/components/game/SoulDisplay';
+import RuneDisplay from '@/components/game/RuneDisplay';
 import { useGame } from '@/context/GameContext';
+import SquadPickerModal from '@/components/game/SquadPickerModal';
 import {
   DIFFICULTIES, DIFFICULTY_ICONS, DIFFICULTY_COLORS, DIFFICULTY_LABELS,
   type Difficulty, type Stage,
@@ -13,6 +18,7 @@ import {
   isChapterFullyCompleted, chapterBonusKey, calculateUnitPower,
 } from '@/data/campaignStages';
 import { generateCampaignArtifacts } from '@/data/campaignDrops';
+import { getCampaignModifiers } from '@/data/campaignModifiers';
 import { type Artifact, ARTIFACT_RARITY_COLORS } from '@/data/artifacts';
 import { getChapterBonusReward } from '@/data/chapterBonuses';
 import StageNode from '@/components/campaign/StageNode';
@@ -22,6 +28,9 @@ import StarDisplay from '@/components/game/StarDisplay';
 import SetIcon from '@/components/game/SetIcon';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import QuickBuyButton from '@/components/game/QuickBuyButton';
+import TutorialGlow from '@/components/game/TutorialGlow';
+import { ACCOUNT_XP_REWARDS } from '@/data/accountLevel';
+import { getChapterLore } from '@/data/campaignLore';
 
 interface MultiBattleResult {
   count: number;
@@ -41,7 +50,9 @@ interface ChapterBonusResult {
 
 export default function CampaignPage() {
   const navigate = useNavigate();
-  const { getSquadChampions, campaignProgress, chapterBonusesClaimed, getFullStats, addSouls, addRunes, addXpToSquad, addArtifacts, updateCampaignProgress, checkAndClaimChapterBonus, spendEnergy, getEnergyInfo } = useGame();
+  const { getSquadChampions, campaignProgress, chapterBonusesClaimed, getFullStats, addSouls, addRunes, addXpToSquad, addArtifacts, updateCampaignProgress, checkAndClaimChapterBonus, spendEnergy, getEnergyInfo, setActiveSquad, player, advanceTutorial, gainAccountXp, getMultiBattlesRemaining, getMultiBattleLimit, recordMultiBattles, isVipActive } = useGame();
+  const [showSquadPicker, setShowSquadPicker] = useState(false);
+  const pendingBattleAction = useRef<(() => void) | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const initialDifficulty = (DIFFICULTIES.includes(searchParams.get('difficulty') as Difficulty)
@@ -66,7 +77,7 @@ export default function CampaignPage() {
     }, 0);
   }, [squad, getFullStats]);
 
-  const handleBattle = () => {
+  const executeBattle = () => {
     if (!selectedStage) return;
     const cost = getEnergyCost(difficulty, selectedStage.isBoss);
     if (!spendEnergy(cost)) {
@@ -74,11 +85,14 @@ export default function CampaignPage() {
       return;
     }
     const waves = buildEnemyWaves(selectedStage, difficulty);
+    const enemyElements = waves.flat().map(e => e.element);
+    const modifiers = getCampaignModifiers(selectedStage.chapter, selectedStage.stageNumber, difficulty, enemyElements);
     sessionStorage.setItem('campaignBattle', JSON.stringify({
       stage: selectedStage,
       difficulty,
-      enemies: waves[0], // first wave for backward compat
-      waves, // all waves
+      enemies: waves[0],
+      waves,
+      modifiers,
     }));
     sessionStorage.setItem('campaignBattleReturn', JSON.stringify({
       difficulty,
@@ -88,8 +102,28 @@ export default function CampaignPage() {
     navigate('/battle');
   };
 
-  const handleMultiBattle = (count: number) => {
+  const handleBattle = () => {
+    pendingBattleAction.current = executeBattle;
+    setShowSquadPicker(true);
+  };
+
+  const handleSquadConfirm = (squadId: number) => {
+    setActiveSquad(squadId);
+    setShowSquadPicker(false);
+    setTimeout(() => {
+      pendingBattleAction.current?.();
+      pendingBattleAction.current = null;
+    }, 0);
+  };
+
+  const executeMultiBattle = (count: number) => {
     if (!selectedStage) return;
+    const remaining = getMultiBattlesRemaining();
+    const limit = getMultiBattleLimit();
+    if (count > remaining) {
+      toast.error(`Лимит мультибоёв! Осталось: ${remaining}/${limit}`);
+      return;
+    }
     const stage = selectedStage;
     const costPerBattle = getEnergyCost(difficulty, stage.isBoss);
     const totalCost = costPerBattle * count;
@@ -124,7 +158,9 @@ export default function CampaignPage() {
     addSouls(totalSouls);
     addRunes(totalRunes);
     addXpToSquad(totalExp);
+    gainAccountXp(count * ACCOUNT_XP_REWARDS.campaign_stage);
     if (allArtifacts.length > 0) addArtifacts(allArtifacts);
+    recordMultiBattles(count);
 
     setMultiBattleResult({ count, totalSouls, totalRunes, totalExp, artifacts: allArtifacts });
     setSelectedStage(null);
@@ -135,6 +171,11 @@ export default function CampaignPage() {
         setChapterBonusResult({ souls: result.souls!, runes: result.runes!, mithrilRunes: result.mithrilRunes ?? 0, artifacts: result.artifacts!, chapter: stage.chapter });
       }
     }, 500);
+  };
+
+  const handleMultiBattle = (count: number) => {
+    pendingBattleAction.current = () => executeMultiBattle(count);
+    setShowSquadPicker(true);
   };
 
   // Check for unclaimed chapter bonus on return from battle
@@ -171,12 +212,27 @@ export default function CampaignPage() {
       <div className="fixed inset-0 z-0 bg-background" />
 
       <div className="relative z-10 px-3 sm:px-4 pt-4 sm:pt-8 max-w-4xl mx-auto">
-        <button
-          onClick={() => navigate('/')}
-          className="text-muted-foreground hover:text-foreground text-sm font-kelly mb-2 flex items-center gap-1"
-        >
-          ← Стан
-        </button>
+        {(() => {
+          const step = player.tutorialStep ?? 99;
+          const isBackHighlighted = step === 15 || step === 29;
+          return (
+            <button
+              onClick={() => {
+                if (step === 15) advanceTutorial(15);
+                if (step === 29) advanceTutorial(29);
+                navigate('/trials');
+              }}
+              className={`relative text-sm font-kelly mb-2 flex items-center gap-1 min-w-[44px] min-h-[44px] ${
+                isBackHighlighted ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {isBackHighlighted && (
+                <TutorialGlow rounded="rounded-xl" label={step === 15 ? 'Отлично! Первый бой пройден. Вернись назад.' : 'Второй бой пройден! Возвращайся.'} wide below />
+              )}
+              ←
+            </button>
+          );
+        })()}
         <motion.h1
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -210,25 +266,44 @@ export default function CampaignPage() {
         })()}
 
         {/* Difficulty tabs */}
-        <div className="flex gap-1 justify-center mb-4">
-          {DIFFICULTIES.map(d => (
+        {(() => {
+          const tutStep = player.tutorialStep ?? 99;
+          const tutorialActive = tutStep < 39;
+          return (
+        <div className={`flex gap-1 justify-center mb-4 ${tutorialActive ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+          {DIFFICULTIES.map(d => {
+            const isActive = difficulty === d;
+            const glowColors: Record<Difficulty, string> = {
+              'Явь': 'shadow-green-400/40',
+              'Навь': 'shadow-blue-400/40',
+              'Правь': 'shadow-purple-400/40',
+              'Ирий': 'shadow-red-400/40',
+            };
+            return (
             <button
               key={d}
               onClick={() => setDifficulty(d)}
-              className={`px-3 sm:px-4 py-2 rounded-xl font-kelly text-xs sm:text-sm transition-all min-h-[40px] ${
-                difficulty === d
-                  ? 'bg-primary/20 text-primary border border-primary/50'
+              disabled={tutorialActive}
+              className={`relative px-3 sm:px-4 py-2 rounded-xl font-kelly text-xs sm:text-sm transition-all min-h-[40px] ${
+                isActive
+                  ? `bg-primary/20 text-primary border border-primary/50 shadow-lg ${glowColors[d]}`
                   : 'bg-surface/60 text-muted-foreground border border-border/30 hover:border-border'
               }`}
             >
-              {DIFFICULTY_ICONS[d]} {d}
+              {isActive && (
+                <span className="absolute inset-0 rounded-xl border border-primary/40 animate-pulse pointer-events-none" />
+              )}
+              <img src={DIFFICULTY_ICONS[d]} alt={d} className="w-4 h-4 inline-block" /> {d}
             </button>
-          ))}
+            );
+          })}
         </div>
+          );
+        })()}
 
         {/* Chapter selector — scrollable */}
-        <div className="mb-6">
-          <div className="flex gap-2 overflow-x-auto pb-2 px-1 -mx-1 scrollbar-thin">
+        <div className={`mb-6 ${(player.tutorialStep ?? 99) < 39 ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+          <DragScroll className="flex gap-2 pb-2 px-1 -mx-1">
             {Array.from({ length: TOTAL_CHAPTERS }, (_, i) => i + 1).map(ch => {
               const cleared = isChapterCleared(ch);
               const unlocked = isChapterUnlocked(ch);
@@ -255,7 +330,7 @@ export default function CampaignPage() {
                     return (
                       <>
                         <span className="text-lg">
-                          {full3Star ? '🏆' : cleared ? '✅' : chapterDef.icon}
+                          {full3Star ? '🏆' : cleared ? '✅' : <img src={chapterDef.icon} alt={chapterDef.name} className="w-5 h-5 inline-block" loading="lazy" />}
                         </span>
                         <span className="text-[9px] sm:text-[10px] font-kelly whitespace-nowrap">{ch}. {chapterDef.name.length > 8 ? chapterDef.name.slice(0, 8) + '…' : chapterDef.name}</span>
                         {unlocked && totalStars > 0 && (
@@ -272,7 +347,7 @@ export default function CampaignPage() {
                 </button>
               );
             })}
-          </div>
+          </DragScroll>
         </div>
 
         {/* Stage map */}
@@ -282,12 +357,30 @@ export default function CampaignPage() {
           animate={{ opacity: 1, y: 0 }}
           className="bg-surface/40 rounded-2xl border border-border/30 p-4 sm:p-6 card-lubok"
         >
-          <h2 className="font-kelly text-foreground text-sm sm:text-base mb-1 text-center">
-            {CHAPTERS[selectedChapter - 1].icon} Глава {selectedChapter}: {CHAPTERS[selectedChapter - 1].name}
+          <h2 className="font-kelly text-foreground text-sm sm:text-base mb-1 text-center flex items-center justify-center gap-1.5">
+            <motion.img
+              key={`ch-icon-${selectedChapter}`}
+              src={CHAPTERS[selectedChapter - 1].icon}
+              alt=""
+              className="w-6 h-6 inline-block"
+              loading="lazy"
+              initial={{ scale: 0, rotate: -45, opacity: 0 }}
+              animate={{ scale: 1, rotate: 0, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+            /> Глава {selectedChapter}: {CHAPTERS[selectedChapter - 1].name}
             <span className={`ml-2 text-xs ${DIFFICULTY_COLORS[difficulty]}`}>
               ({DIFFICULTY_LABELS[difficulty]})
             </span>
           </h2>
+          {/* Chapter lore intro */}
+          {(() => {
+            const lore = getChapterLore(selectedChapter);
+            return lore ? (
+              <p className="text-xs italic text-muted-foreground/70 text-center mb-2 max-w-sm mx-auto leading-relaxed">
+                {lore.intro}
+              </p>
+            ) : null;
+          })()}
           {/* Chapter star summary */}
           <div className="text-center text-xs text-muted-foreground mb-4">
             ⭐ {getChapterTotalStars(selectedChapter, campaignProgress, difficulty)} / {STAGES_PER_CHAPTER * 3}
@@ -302,23 +395,51 @@ export default function CampaignPage() {
               const stars = getStageStars(stage.id, stage.chapter, campaignProgress, difficulty);
 
               return (
-                <div key={stage.id} className="flex items-center gap-2 sm:gap-4">
-                  <StageNode
-                    stageNumber={stage.stageNumber}
-                    name={stage.name}
-                    isBoss={stage.isBoss}
-                    isUnlocked={unlocked}
-                    isCleared={cleared}
-                    isCurrent={isCurrent}
-                    stars={stars}
-                    onClick={() => setSelectedStage(stage)}
-                  />
+                <motion.div
+                  key={stage.id}
+                  className="flex items-center gap-2 sm:gap-4"
+                  initial={{ opacity: 0, y: 15, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ delay: i * 0.07, type: 'spring', stiffness: 260, damping: 18 }}
+                >
+                  {(() => {
+                    const step = player.tutorialStep ?? 99;
+                    const isStage1Highlight = step === 11 && stage.stageNumber === 1 && isCurrent;
+                    const isStage2Highlight = step === 25 && stage.stageNumber === 2 && isCurrent;
+                    const isHighlighted = isStage1Highlight || isStage2Highlight;
+                    const tutorialActive = step < 39;
+                    const blockedByTutorial = tutorialActive && !isHighlighted;
+                    return (
+                      <div className={`relative ${blockedByTutorial ? 'opacity-40 pointer-events-none' : ''}`}>
+                        {isHighlighted && (
+                          <TutorialGlow rounded="rounded-xl" label={step === 11 ? 'Нажми на этап чтобы увидеть врагов и награды. Получи до 3★!' : 'Второй этап! Нажми чтобы начать бой.'} wide />
+                        )}
+                        <StageNode
+                          stageNumber={stage.stageNumber}
+                          name={stage.name}
+                          isBoss={stage.isBoss}
+                          isUnlocked={unlocked}
+                          isCleared={cleared}
+                          isCurrent={isCurrent}
+                          stars={stars}
+                          onClick={() => {
+                            if (isStage1Highlight) advanceTutorial(11);
+                            if (isStage2Highlight) advanceTutorial(25);
+                            setSelectedStage(stage);
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
                   {i < stages.length - 1 && (
-                    <div className={`w-4 sm:w-8 h-0.5 ${
-                      cleared ? 'bg-primary/50' : 'bg-muted/30'
-                    }`} />
+                    <motion.div
+                      className={`w-4 sm:w-8 h-0.5 ${cleared ? 'bg-primary/50' : 'bg-muted/30'}`}
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: 1 }}
+                      transition={{ delay: i * 0.07 + 0.05, duration: 0.25 }}
+                    />
                   )}
-                </div>
+                </motion.div>
               );
             })}
           </div>
@@ -354,6 +475,7 @@ export default function CampaignPage() {
           onClose={() => setSelectedStage(null)}
           onBattle={handleBattle}
           onMultiBattle={handleMultiBattle}
+          multiBattlesRemaining={getMultiBattlesRemaining()}
         />
       )}
 
@@ -385,18 +507,21 @@ export default function CampaignPage() {
                 <h3 className="text-xs font-kelly text-muted-foreground mb-2">📦 Суммарная добыча:</h3>
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
-                    <div className="text-lg font-mono text-primary flex items-center justify-center gap-1"><img src={iconSouls} alt="Души" className="w-5 h-5" /> {multiBattleResult.totalSouls}</div>
+                    <div className="text-lg font-mono text-primary flex items-center justify-center gap-1"><img src={iconSouls} alt="Души" className="w-5 h-5" /> <SoulDisplay souls={multiBattleResult.totalSouls} /></div>
                     <div className="text-[10px] text-muted-foreground">Души</div>
                   </div>
                   <div>
-                    <div className="text-lg font-mono text-foreground flex items-center gap-1"><img src="/ui/icon_runes.png" alt="Руны" className="w-5 h-5" /> {multiBattleResult.totalRunes}</div>
+                    <div className="text-lg font-mono text-foreground flex items-center gap-1"><img src="/ui/icon_runes.png" alt="Руны" className="w-5 h-5" /> <RuneDisplay runes={multiBattleResult.totalRunes} /></div>
                     <div className="text-[10px] text-muted-foreground">Руны</div>
                   </div>
                   <div>
-                    <div className="text-lg font-mono text-foreground">📚 {multiBattleResult.totalExp}</div>
+                    <div className="text-lg font-mono text-foreground flex items-center gap-1"><img src="/ui/icon_xp.png" alt="Опыт" className="w-5 h-5" /> <XpDisplay xp={multiBattleResult.totalExp} /></div>
                     <div className="text-[10px] text-muted-foreground">Опыт</div>
                   </div>
                 </div>
+                {isVipActive() && (
+                  <p className="text-[10px] text-[hsl(40,85%,55%)] text-center mt-2">👑 VIP: ×1.5 к наградам</p>
+                )}
               </div>
 
               {/* Dropped artifacts */}
@@ -527,6 +652,11 @@ export default function CampaignPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      <SquadPickerModal
+        open={showSquadPicker}
+        onClose={() => { setShowSquadPicker(false); pendingBattleAction.current = null; }}
+        onConfirm={handleSquadConfirm}
+      />
     </div>
   );
 }

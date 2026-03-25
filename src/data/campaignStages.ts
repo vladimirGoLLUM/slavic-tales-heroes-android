@@ -19,10 +19,10 @@ export const DIFFICULTY_COLORS: Record<Difficulty, string> = {
 };
 
 export const DIFFICULTY_ICONS: Record<Difficulty, string> = {
-  'Явь': '🌿',
-  'Навь': '🌊',
-  'Правь': '⚡',
-  'Ирий': '🔥',
+  'Явь': '/ui/diff_yav.png',
+  'Навь': '/ui/diff_nav.png',
+  'Правь': '/ui/diff_prav.png',
+  'Ирий': '/ui/diff_iriy.png',
 };
 
 /** Base stat scaling per difficulty */
@@ -148,26 +148,26 @@ export interface ChapterDef {
 }
 
 export const CHAPTERS: ChapterDef[] = [
-  { name: 'Тёмный Лес', icon: '🌲' },
-  { name: 'Каменные Пустоши', icon: '⛰️' },
-  { name: 'Навьи Врата', icon: '💀' },
-  { name: 'Ледяная Пустошь', icon: '❄️' },
-  { name: 'Огненное Ущелье', icon: '🌋' },
-  { name: 'Болота Тоски', icon: '🐸' },
-  { name: 'Древний Курган', icon: '⚱️' },
-  { name: 'Змеиный Перевал', icon: '🐍' },
-  { name: 'Чёрный Бор', icon: '🌑' },
-  { name: 'Пещеры Велеса', icon: '🐻' },
-  { name: 'Каменный Храм', icon: '🏛️' },
-  { name: 'Долина Грёз', icon: '🌙' },
-  { name: 'Кровавая Река', icon: '🩸' },
-  { name: 'Вершина Мира', icon: '🏔️' },
-  { name: 'Пустыня Забвения', icon: '🏜️' },
-  { name: 'Грозовой Утёс', icon: '⛈️' },
-  { name: 'Чертоги Мары', icon: '👻' },
-  { name: 'Радужный Мост', icon: '🌈' },
-  { name: 'Корень Мира', icon: '🌳' },
-  { name: 'Трон Богов', icon: '👑' },
+  { name: 'Тёмный Лес', icon: '/ui/chapters/ch1_dark_forest.png' },
+  { name: 'Каменные Пустоши', icon: '/ui/chapters/ch2_stone_wastes.png' },
+  { name: 'Навьи Врата', icon: '/ui/chapters/ch3_nav_gates.png' },
+  { name: 'Ледяная Пустошь', icon: '/ui/chapters/ch4_ice_waste.png' },
+  { name: 'Огненное Ущелье', icon: '/ui/chapters/ch5_fire_gorge.png' },
+  { name: 'Болота Тоски', icon: '/ui/chapters/ch6_swamps.png' },
+  { name: 'Древний Курган', icon: '/ui/chapters/ch7_ancient_kurgan.png' },
+  { name: 'Змеиный Перевал', icon: '/ui/chapters/ch8_serpent_pass.png' },
+  { name: 'Чёрный Бор', icon: '/ui/chapters/ch9_black_forest.png' },
+  { name: 'Пещеры Велеса', icon: '/ui/chapters/ch10_veles_caves.png' },
+  { name: 'Каменный Храм', icon: '/ui/chapters/ch11_stone_temple.png' },
+  { name: 'Долина Грёз', icon: '/ui/chapters/ch12_dream_valley.png' },
+  { name: 'Кровавая Река', icon: '/ui/chapters/ch13_blood_river.png' },
+  { name: 'Вершина Мира', icon: '/ui/chapters/ch14_world_peak.png' },
+  { name: 'Пустыня Забвения', icon: '/ui/chapters/ch15_desert.png' },
+  { name: 'Грозовой Утёс', icon: '/ui/chapters/ch16_storm_cliff.png' },
+  { name: 'Чертоги Мары', icon: '/ui/chapters/ch17_mara_halls.png' },
+  { name: 'Радужный Мост', icon: '/ui/chapters/ch18_rainbow_bridge.png' },
+  { name: 'Корень Мира', icon: '/ui/chapters/ch19_world_root.png' },
+  { name: 'Трон Богов', icon: '/ui/chapters/ch20_throne_of_gods.png' },
 ];
 
 const STAGE_NAMES_POOL = [

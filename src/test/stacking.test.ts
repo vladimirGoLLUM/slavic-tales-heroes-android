@@ -21,6 +21,7 @@ function makeMockUnit(overrides?: Partial<BattleUnit>): BattleUnit {
     isEnemy: false,
     skillCooldowns: [],
     effects: [],
+    turnMeter: 0,
     ...overrides,
   };
 }

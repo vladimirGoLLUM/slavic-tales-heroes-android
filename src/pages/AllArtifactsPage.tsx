@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import DragScroll from '@/components/ui/DragScroll';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -13,6 +14,50 @@ import {
 import SlotIcon from '@/components/game/SlotIcon';
 import SetIcon from '@/components/game/SetIcon';
 import StarDisplay from '@/components/game/StarDisplay';
+
+const SET_COMBAT_MECHANICS: Partial<Record<ArtifactSet, string[]>> = {
+  'Чёрная Вдова': [
+    '3×: 20% шанс превратить не-крит в критический удар.',
+    '9×: Все атаки гарантированно наносят критический урон.',
+  ],
+  'Каменный Жук': [
+    '3×: В начале боя и каждой волны герой получает бафф «Блок штрафов» на 2 хода.',
+    '9×: Блок штрафов длится 3 хода.',
+  ],
+  'Огненный Змей': [
+    '3×: +20% Сила атаки, +20% Крит. урон (статы).',
+    '9×: +80% Сила атаки, +80% Крит. урон.',
+  ],
+  'Ледяная': [
+    '3×: 20% шанс заблокировать входящую Заморозку. 20% шанс наложить Заморозку на 1 ход при атаке (проходит проверку Меткость vs Сопротивление).',
+    '9×: 80% шанс блока и наложения Заморозки.',
+  ],
+  'Небесный': [
+    '3×: +12% Крит. урон, 30% кража жизни от нанесённого урона.',
+    '9×: +50% Крит. урон, 100% кража жизни от нанесённого урона.',
+  ],
+  'Контратака': [
+    '2×: +25% шанс контратаки. При срабатывании герой отвечает базовым ударом (75% урона).',
+  ],
+  'Вампиризм': [
+    '2×: +15% кражи жизни. Лечение = lifesteal% от нанесённого урона.',
+  ],
+  'Возмездие': [
+    '2×: +10% шанс получить доп. ход после любого действия.',
+  ],
+  'Дренос': [
+    '3×: Герой поглощает 10% урона, получаемого союзниками. Каждый ход восстанавливает 10% макс. ЗДР.',
+    '9×: Поглощение 40% урона союзников, регенерация 40% макс. ЗДР за ход.',
+  ],
+  'Боммал': [
+    '3×: +50 Сопротивление и +15% Защита (статы).',
+    '9×: +160 Сопротивление и +50% Защита — максимальная устойчивость к дебаффам.',
+  ],
+  'Тёмная': [
+    '3×: +10% Крит. урон. Атаки игнорируют 25% защиты противника.',
+    '9×: +40% Крит. урон. Атаки игнорируют 80% защиты — почти чистый урон.',
+  ],
+};
 
 export default function AllArtifactsPage() {
   const navigate = useNavigate();
@@ -99,6 +144,16 @@ export default function AllArtifactsPage() {
                             <span className="text-foreground">{b.label}</span>
                           </div>
                         ))}
+                        {SET_COMBAT_MECHANICS[set] && (
+                          <div className="bg-primary/5 border border-primary/20 rounded-lg p-2 mt-1">
+                            <div className="text-[10px] text-primary font-kelly mb-1">⚔️ Боевая механика</div>
+                            {SET_COMBAT_MECHANICS[set].map((line, i) => (
+                              <div key={i} className="text-[11px] text-muted-foreground leading-relaxed">
+                                {line}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div className="pt-1.5 border-t border-border/20">
                           <div className="text-[10px] text-muted-foreground mb-1.5 font-kelly">Экипировка сета:</div>
                           <div className="grid grid-cols-3 gap-1.5">
@@ -130,7 +185,7 @@ export default function AllArtifactsPage() {
           <p className="text-xs text-muted-foreground mb-2">
             Каждый артефакт имеет уровень звёзд (1-5★), который умножает основную характеристику.
           </p>
-          <div className="overflow-x-auto -mx-3 px-3">
+          <DragScroll className="-mx-3 px-3">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border/30">
@@ -169,7 +224,7 @@ export default function AllArtifactsPage() {
                 })}
               </tbody>
             </table>
-          </div>
+          </DragScroll>
         </div>
 
         {/* Rarity info */}
