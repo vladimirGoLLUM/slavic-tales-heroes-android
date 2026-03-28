@@ -10,7 +10,6 @@ import { chooseTarget, chooseSkill, updateCooldowns, applyCooldown, type BattleU
 import { tickToNextTurn, predictTurnOrder, boostTurnMeter, reduceTurnMeter, TM_THRESHOLD } from '@/utils/turnMeter';
 import { calculateRewards, type BattleRewards } from '@/utils/rewards';
 import { ELEMENT_ICONS, CHAMPIONS } from '@/data/gameData';
-import { ARENA_WIN_RATING, ARENA_LOSS_RATING, getRankFromRating as getArenaRank } from '@/data/arenaData';
 import { calculateArtifactStats, SLOT_LABELS, STAT_LABELS } from '@/data/artifacts';
 import iconSouls from '@/assets/icons/icon_souls.png';
 import { applyEffect, processEffects, isCC, cleanse, applyDamageWithShield, tickCCEffects, hasEffect, getStatMultiplier, getHealMultiplier, findAllyProtector } from '@/utils/effects';
@@ -1026,6 +1025,7 @@ export default function BattlePage() {
     }
   }, [hasBattleContext, navigate]);
 
+  const arenaResolvedRef = useRef(false);
   const [battleState, setBattleStateRaw] = useState<'prep' | 'fighting' | 'victory' | 'defeat'>('prep');
   const setBattleState = useCallback((state: 'prep' | 'fighting' | 'victory' | 'defeat') => {
     if (state === 'victory' || state === 'defeat') {
@@ -1033,6 +1033,8 @@ export default function BattlePage() {
     }
     if (state === 'prep') {
       combatStatsRef.current = {};
+      arenaResolvedRef.current = false;
+      setArenaResolution(null);
     }
     setBattleStateRaw(state);
   }, []);
@@ -1054,6 +1056,7 @@ export default function BattlePage() {
   const [visualEffects, setVisualEffects] = useState<Record<string, boolean>>({});
   const [turnTimer, setTurnTimer] = useState(60);
   const [rewards, setRewards] = useState<BattleRewards | null>(null);
+  const [arenaResolution, setArenaResolution] = useState<null | { result: 'win' | 'loss'; rating_delta: number; new_rating: number; coin_tier: string; server_seed: string }>(null);
   const [floatingNumbers, setFloatingNumbers] = useState<Record<string, FloatingNumber[]>>({});
   const tutorialStep = player.tutorialStep ?? 99;
   const isTutorialBattle = tutorialStep === 13 || tutorialStep === 27;
@@ -1070,6 +1073,30 @@ export default function BattlePage() {
     if (battleState === 'victory' && tutorialStep === 13) advanceTutorial(13);
     if (battleState === 'victory' && tutorialStep === 27) advanceTutorial(27);
   }, [battleState]);
+
+  // Arena: resolve result server-side once battle ends
+  useEffect(() => {
+    if (!arenaData) return;
+    if (battleState !== 'victory' && battleState !== 'defeat') return;
+    void resolveArenaBattleOnServer()
+      .then((r) => {
+        if (!r) return;
+        setArenaResolution(r);
+        if (r.result === 'win') {
+          markArenaOpponentDefeated(arenaData.opponentId);
+          updateArenaRating(r.rating_delta);
+          addArenaCoins(r.coin_tier, 1);
+          addLog(`🏆 Победа на Арене! ${r.rating_delta >= 0 ? `+${r.rating_delta}` : r.rating_delta} очей, +1 монета (${r.coin_tier})`, 'buff');
+        } else {
+          updateArenaRating(r.rating_delta);
+          addLog(`⚔️ Поражение на Арене. ${r.rating_delta >= 0 ? `+${r.rating_delta}` : r.rating_delta} очей`, 'debuff');
+        }
+      })
+      .catch((e) => {
+        console.error(e);
+        addLog('⚠️ Ошибка сервера Арены: результат не засчитан.', 'debuff');
+      });
+  }, [arenaData, battleState, resolveArenaBattleOnServer, markArenaOpponentDefeated, updateArenaRating, addArenaCoins, addLog]);
   const [turnCount, setTurnCount] = useState(0);
   const [allyDeaths, setAllyDeaths] = useState(0);
   const [earnedStars, setEarnedStars] = useState(0);
@@ -1174,6 +1201,32 @@ export default function BattlePage() {
     const enemyUnits = units.filter(u => u.isEnemy);
     return { attackerSquad: playerUnits.map(toSnap), defenderSquad: enemyUnits.map(toSnap) };
   }, [units]);
+
+  const resolveArenaBattleOnServer = useCallback(async () => {
+    if (!arenaData) return null;
+    if (arenaResolvedRef.current) return null;
+    arenaResolvedRef.current = true;
+
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error('No auth session');
+
+    const base = (import.meta as any).env?.VITE_SERVER_URL || '';
+    const url = `${String(base).replace(/\/$/, '')}/arena/resolve`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ opponent_id: arenaData.opponentId }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(text || `Arena resolve failed: ${resp.status}`);
+    }
+    return await resp.json() as { result: 'win' | 'loss'; rating_delta: number; new_rating: number; coin_tier: string; server_seed: string };
+  }, [arenaData]);
 
   /* generate enemies */
   const generateEnemyTeam = useCallback((): BattleUnit[] => {
@@ -2056,17 +2109,7 @@ export default function BattlePage() {
               addLog(`🏆 Этаж ${abyssData.floor} пройден! +${floorRewards.souls} душ, +${floorRewards.runes} рун${bossArts.length > 0 ? ` + 🎁 ${bossArts.length} арт.` : ''}${materialText}`, 'buff');
             }
           } else if (arenaData) {
-            const currentRating = arenaState.arenaRating;
-            const rank = getArenaRank(currentRating);
-            processArenaVictory(arenaData.opponentId, ARENA_WIN_RATING, rank.tier);
-            recordArenaBattle({
-              opponentId: arenaData.opponentId,
-              opponentName: arenaData.opponentName || '',
-              attackerRating: currentRating,
-              defenderRating: arenaData.opponentRating || 0,
-              ratingChange: ARENA_WIN_RATING,
-              result: 'win', ...getArenaSquads(),
-            });
+            // Arena result is resolved server-side in a dedicated effect.
           } else if (templeData) {
             const deadAllies = finalUnits.filter(u => !u.isEnemy && u.currentHp <= 0).length;
             const totalDeaths = allyDeathsRef.current + deadAllies;
@@ -2097,16 +2140,7 @@ export default function BattlePage() {
         }
         if (alivePlayers.length === 0) {
           if (arenaData) {
-            const currentRating = arenaState.arenaRating;
-            updateArenaRating(-ARENA_LOSS_RATING);
-            recordArenaBattle({
-              opponentId: arenaData.opponentId,
-              opponentName: arenaData.opponentName || '',
-              attackerRating: currentRating,
-              defenderRating: arenaData.opponentRating || 0,
-              ratingChange: -ARENA_LOSS_RATING,
-              result: 'loss', ...getArenaSquads(),
-            });
+            // Arena result is resolved server-side in a dedicated effect.
           }
           setBattleState('defeat');
           setUnits(finalUnits);
@@ -2128,7 +2162,7 @@ export default function BattlePage() {
       setTurnCount(prev => prev + 1);
       turnCountRef.current += 1;
     }
-  }, [processUnitEffects, addLog, arenaData, arenaState.arenaRating, processArenaVictory, updateArenaRating, recordArenaBattle, getArenaSquads, campaignData, campaignProgress, templeData, addArtifacts, addSouls, addRunes, addXpToSquad, addDivineRunes, updateCampaignProgress]);
+  }, [processUnitEffects, addLog, arenaData, arenaState.arenaRating, campaignData, campaignProgress, templeData, addArtifacts, addSouls, addRunes, addXpToSquad, addDivineRunes, updateCampaignProgress]);
 
   /* Execute a self-only buff (no target needed) */
   const executeSelfBuff = useCallback((attackerIdx: number, skillIdx: number) => {
@@ -2710,24 +2744,11 @@ export default function BattlePage() {
         addXpToSquad(r.exp);
         addLog(`🏆 Победа! ⭐${templeStars}/3 +${droppedRunes.length} ${templeData.temple.runeName} (${templeData.floorData.runeRarity}) +${r.souls} душ, +${r.exp} опыта`, 'buff');
       } else if (arenaData) {
-        // Arena battle rewards — single atomic update
-        const currentRating = arenaState.arenaRating;
-        const rank = getArenaRank(currentRating);
-        processArenaVictory(arenaData.opponentId, ARENA_WIN_RATING, rank.tier);
         const r: BattleRewards = {
           souls: 0, exp: 0,
           artifactDrop: false, droppedArtifacts: [],
         };
         setRewards(r);
-        addLog(`🏆 Победа на Арене! +${ARENA_WIN_RATING} очей, +1 монета (${rank.tier})`, 'buff');
-        recordArenaBattle({
-          opponentId: arenaData.opponentId,
-          opponentName: arenaData.opponentName || '',
-          attackerRating: currentRating,
-          defenderRating: arenaData.opponentRating || 0,
-          ratingChange: ARENA_WIN_RATING,
-          result: 'win', ...getArenaSquads(),
-        });
       } else {
         const r = calculateRewards(1);
         setRewards(r);
@@ -2796,16 +2817,7 @@ export default function BattlePage() {
         return;
       }
       if (arenaData) {
-        const currentRating = arenaState.arenaRating;
-        updateArenaRating(-ARENA_LOSS_RATING);
-        recordArenaBattle({
-          opponentId: arenaData.opponentId,
-          opponentName: arenaData.opponentName || '',
-          attackerRating: currentRating,
-          defenderRating: arenaData.opponentRating || 0,
-          ratingChange: -ARENA_LOSS_RATING,
-          result: 'loss', ...getArenaSquads(),
-        });
+        // Arena result is resolved server-side in a dedicated effect.
       }
       addLog('💀 Поражение...', 'debuff');
       setUnits(newUnits);
@@ -3222,17 +3234,7 @@ export default function BattlePage() {
             setRewards({ souls: floorRewards.souls, exp: 0, artifactDrop: false, droppedArtifacts: [], runes: floorRewards.runes, bossMaterial: boss && matDrop > 0 ? { name: boss.material, imageUrl: boss.materialImageUrl, count: matDrop } : undefined });
           }
         } else if (arenaData) {
-          const currentRating = arenaState.arenaRating;
-          processArenaVictory(arenaData.opponentId, ARENA_WIN_RATING, getArenaRank(currentRating).tier);
           setRewards({ souls: 0, exp: 0, artifactDrop: false, droppedArtifacts: [] });
-          recordArenaBattle({
-            opponentId: arenaData.opponentId,
-            opponentName: arenaData.opponentName || '',
-            attackerRating: currentRating,
-            defenderRating: arenaData.opponentRating || 0,
-            ratingChange: ARENA_WIN_RATING,
-            result: 'win', ...getArenaSquads(),
-          });
         } else {
           const r = calculateRewards(1);
           setRewards(r);
@@ -3248,20 +3250,11 @@ export default function BattlePage() {
     if (alivePlayers.length === 0) {
       victoryProcessedRef.current = true;
       if (arenaData && !rewards) {
-        const currentRating = arenaState.arenaRating;
-        updateArenaRating(-ARENA_LOSS_RATING);
-        recordArenaBattle({
-          opponentId: arenaData.opponentId,
-          opponentName: arenaData.opponentName || '',
-          attackerRating: currentRating,
-          defenderRating: arenaData.opponentRating || 0,
-          ratingChange: -ARENA_LOSS_RATING,
-          result: 'loss', ...getArenaSquads(),
-        });
+        // Arena result is resolved server-side in a dedicated effect.
       }
       setBattleState('defeat');
     }
-  }, [units, battleState, worldBossData, worldBossTotalDamage, rewards, campaignData, campaignProgress, templeData, arenaData, arenaState.arenaRating, addArtifacts, addSouls, addRunes, addXpToSquad, addDivineRunes, addLog, updateCampaignProgress, processArenaVictory, updateArenaRating, recordArenaBattle, getArenaSquads, recordWorldBossDamage, recordCerberusDamage, user]);
+  }, [units, battleState, worldBossData, worldBossTotalDamage, rewards, campaignData, campaignProgress, templeData, arenaData, arenaState.arenaRating, addArtifacts, addSouls, addRunes, addXpToSquad, addDivineRunes, addLog, updateCampaignProgress, recordWorldBossDamage, recordCerberusDamage, user]);
 
   /* turn timer */
   useEffect(() => {
@@ -3661,8 +3654,8 @@ export default function BattlePage() {
             earnedStars={campaignData ? earnedStars : undefined}
             starConditions={campaignData?.stage?.starConditions}
             arenaInfo={arenaData ? {
-              ratingChange: battleState === 'victory' ? ARENA_WIN_RATING : -ARENA_LOSS_RATING,
-              coinTier: battleState === 'victory' ? getArenaRank(arenaState.arenaRating).tier : undefined,
+              ratingChange: arenaResolution?.rating_delta ?? 0,
+              coinTier: arenaResolution?.result === 'win' ? arenaResolution.coin_tier : undefined,
             } : null}
             onContinue={() => {
               if (worldBossData) {

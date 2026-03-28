@@ -1,7 +1,9 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.example.bylina',
+  // NOTE: Package/bundle id must be unique for store publication.
+  // Change this to your own reverse-domain identifier if needed.
+  appId: 'ru.slavictales.bylina',
   appName: 'Былина',
   webDir: 'dist',
   server: {
@@ -10,7 +12,7 @@ const config: CapacitorConfig = {
   ios: {
     backgroundColor: '#000000',
     scrollEnabled: false,
-    bundleId: 'com.example.bylina',
+    bundleId: 'ru.slavictales.bylina',
     deploy: 'development',
     scheme: 'app'
   },

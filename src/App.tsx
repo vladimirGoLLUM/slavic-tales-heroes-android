@@ -113,12 +113,15 @@ function ProtectedRoutes() {
   );
 }
 
+const routerBasename =
+  import.meta.env.BASE_URL.replace(/\/$/, "") || "/";
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Sonner />
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBasename}>
           <Routes>
             <Route path="/*" element={<ProtectedRoutes />} />
           </Routes>

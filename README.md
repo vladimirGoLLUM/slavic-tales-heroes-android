@@ -60,6 +60,38 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Server-side Arena (anti-cheat MVP)
+
+В проект добавлен Python-сервер `server/`, который:
+
+- проверяет `Bearer` токен Supabase (JWT) по JWKS
+- сам рассчитывает результат боя на Арене (MVP-симуляция)
+- записывает результат в Supabase (`profiles.arena_rating`, `profiles.game_data.arenaState`, `arena_battle_history`)
+
+### Запуск сервера локально
+
+Создай переменные окружения:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (держать только на сервере)
+- `CORS_ORIGINS` (например `http://localhost:5173`)
+
+Запуск:
+
+```bash
+cd server
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app:app --reload --port 8000
+```
+
+### Подключение фронта
+
+Укажи URL сервера:
+
+- `VITE_SERVER_URL=http://localhost:8000`
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
@@ -71,3 +103,48 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Публикация Android-версии в RuStore
+
+Проект использует Capacitor и собирается в Android App Bundle (AAB).
+
+### 1) Проверьте идентификатор пакета (обязательно уникальный)
+
+Сейчас выставлено `ru.slavictales.bylina`:
+
+- `capacitor.config.ts` (`appId`)
+- `android/app/build.gradle` (`namespace`, `applicationId`)
+- `android/app/src/main/res/values/strings.xml` (`package_name`, `custom_url_scheme`)
+
+Если у вас есть свой домен/организация — замените на ваш reverse-domain идентификатор.
+
+### 2) Соберите релизный AAB
+
+```bash
+npm ci
+npm run android:aab:release
+```
+
+После сборки файл будет в `android/app/build/outputs/bundle/release/app-release.aab`.
+
+### 3) Подпись для RuStore (ZIP + PEM)
+
+В RuStore AAB загружается вместе с:
+
+- ZIP-архивом подписи приложения (PEPK output)
+- сертификатом ключа загрузки в формате PEM
+
+Инструкция RuStore по загрузке AAB и подготовке подписи:
+- Требования к приложениям: `https://www.rustore.ru/help/developers/publishing-and-verifying-apps/requirement-apps/`
+- Загрузка AAB и подписи: `https://www.rustore.ru/help/developers/publishing-and-verifying-apps/app-publication/new-version-app/upload-aab`
+
+Подпись релиза в проекте настраивается через:
+
+- переменные окружения `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, или
+- локальный файл `android/keystore.properties` (он добавлен в `.gitignore`, не коммитьте его)
+
+### 4) Перед отправкой на модерацию
+
+- Убедитесь, что приложение стабильно работает и соответствует заявленному описанию/скриншотам.
+- Если есть авторизация — подготовьте тестовый аккаунт для модераторов (RuStore это просит в комментариях модерации).
+- Проверьте, что вы не запрашиваете лишние разрешения (в `AndroidManifest.xml` сейчас только `INTERNET`).

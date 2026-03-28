@@ -1,3 +1,8 @@
+# Env (secrets)
+.env
+.env.local
+.env.*.local
+
 # Logs
 logs
 *.log
@@ -8,11 +13,17 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+__pycache__/
+*.py[cod]
 dist
 dist-ssr
 *.local
 
+# Supabase CLI local link state
+supabase/.temp/
+
 # Editor directories and files
+.gigaide/
 .vscode/*
 !.vscode/extensions.json
 .idea
